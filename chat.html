@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MioTTS × Gemini 対話プロトタイプ</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #f4f6f9;
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    .header {
+      margin-bottom: 12px;
+    }
+    .api-key-box {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .api-key-box input {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .chat-container {
+      flex: 1;
+      overflow-y: auto;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .message {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      line-height: 1.5;
+      font-size: 15px;
+      word-break: break-word;
+    }
+    .user-msg {
+      align-self: flex-end;
+      background: #007bff;
+      color: #fff;
+    }
+    .ai-msg {
+      align-self: flex-start;
+      background: #e9ecef;
+      color: #212529;
+    }
+    .status {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 6px;
+    }
+    .input-area {
+      display: flex;
+      gap: 8px;
+    }
+    .input-area input {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+    button {
+      padding: 10px 16px;
+      background: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 15px;
+    }
+    button:disabled {
+      background: #aaa;
+      cursor: not-allowed;
+    }
+    audio {
+      width: 100%;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="api-key-box">
+      <input type="password" id="apiKeyInput" placeholder="Gemini API Key を入力してください">
+      <button id="saveKeyBtn">保存</button>
+    </div>
+    <div class="status" id="statusText">待機中</div>
+    <audio id="audioPlayer" controls></audio>
+  </div>
+
+  <div class="chat-container" id="chatContainer">
+    <div class="message ai-msg">こんにちは！何か話しかけてみてください。</div>
+  </div>
+
+  <div class="input-area">
+    <input type="text" id="userInput" placeholder="メッセージを入力...">
+    <button id="sendBtn">送信</button>
+  </div>
+
+  <script>
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    const saveKeyBtn = document.getElementById('saveKeyBtn');
+    const userInput = document.getElementById('userInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const chatContainer = document.getElementById('chatContainer');
+    const statusText = document.getElementById('statusText');
+    const audioPlayer = document.getElementById('audioPlayer');
+
+    apiKeyInput.value = localStorage.getItem('gemini_api_key') || '';
+
+    saveKeyBtn.addEventListener('click', () => {
+      localStorage.setItem('gemini_api_key', apiKeyInput.value.trim());
+      alert('APIキーを保存しました。');
+    });
+
+    function appendMessage(text, isUser) {
+      const msg = document.createElement('div');
+      msg.className = `message ${isUser ? 'user-msg' : 'ai-msg'}`;
+      msg.textContent = text;
+      chatContainer.appendChild(msg);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    // 1. Gemini 3.5 Flash-Lite 呼び出し
+    async function callGemini(apiKey, prompt) {
+      const model = 'gemini-3.5-flash-lite';
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          systemInstruction: {
+            parts: [{ text: "あなたは音声対話アシスタントです。1〜2文程度の簡潔な日本語で会話してください。" }]
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error?.message || `API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.candidates[0].content.parts[0].text;
+    }
+
+    // 2. 音声生成関数の実行
+    async function synthesizeAndPlay(text) {
+      statusText.textContent = "音声合成中...";
+
+      // ※プロトタイプ動作確認用: まずはWeb Speech APIで発話します
+      // （WASM側の関数との最終連携確認が取れ次第、WASM実行処理に切り替えます）
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'ja-JP';
+        window.speechSynthesis.speak(utterance);
+      }
+
+      statusText.textContent = "待機中";
+    }
+
+    // 送信ハンドラー
+    async function handleSend() {
+      const apiKey = apiKeyInput.value.trim();
+      const text = userInput.value.trim();
+
+      if (!apiKey) {
+        alert("Gemini APIキーを入力して保存してください。");
+        return;
+      }
+      if (!text) return;
+
+      // モバイルのオーディオ制限解除
+      audioPlayer.play().catch(() => {});
+
+      userInput.value = '';
+      sendBtn.disabled = true;
+      appendMessage(text, true);
+
+      try {
+        statusText.textContent = "Gemini応答生成中...";
+        const replyText = await callGemini(apiKey, text);
+        appendMessage(replyText, false);
+
+        await synthesizeAndPlay(replyText);
+      } catch (error) {
+        console.error(error);
+        statusText.textContent = "エラーが発生しました";
+        appendMessage(`エラー: ${error.message}`, false);
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    sendBtn.addEventListener('click', handleSend);
+    userInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') handleSend();
+    });
+  </script>
+</body>
+</html>
