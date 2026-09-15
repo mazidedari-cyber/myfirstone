@@ -1,12 +1,10 @@
-
 name: Deploy MioTTS WASM to GitHub Pages
 
 on:
   push:
     branches: ["main"]
-  workflow_dispatch: # 手動実行ボタンを有効化
+  workflow_dispatch:
 
-# GitHub Pages へのデプロイに必要な権限
 permissions:
   contents: read
   pages: write
@@ -24,47 +22,39 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
       
     steps:
-      # 本家のC++コードをまるごとダウンロード
       - name: Checkout mmnga/mio-tts-cpp
         uses: actions/checkout@v4
         with:
           repository: mmnga/mio-tts-cpp
           submodules: recursive
 
-      # WASMコンパイル環境の準備
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: latest
 
-      # WASMのビルドを実行
+      # 【修正ポイント】先にモデルをダウンロードするように順序を変更しました
+      - name: Download Models
+        run: |
+          chmod +x models_download.sh
+          ./models_download.sh
+
+      # モデルが揃った状態でWASMをビルドします
       - name: Build WASM
         run: |
           cd examples/wasm
           chmod +x build.sh
           ./build.sh
 
-      # 推論に必要なモデル（軽量な量子化版など）をダウンロード
-      - name: Download Models
-        run: |
-          chmod +x models_download.sh
-          ./models_download.sh
-          
-          # ブラウザ(WASM)から読み込めるように、HTMLと同じ場所にモデルを配置
-          mkdir -p examples/wasm/models
-          cp models/*.gguf examples/wasm/models/
-
-      # GitHub Pagesの準備
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      # サイトとして公開するフォルダを丸ごとアップロード
+      # サイトとして公開するフォルダ（WASMのビルド出力先）をアップロード
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: './examples/wasm'
 
-      # デプロイ（公開）処理
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
