@@ -33,13 +33,17 @@ jobs:
         with:
           version: latest
 
-      # 【修正ポイント】先にモデルをダウンロードするように順序を変更しました
+      # 【修正ポイント】モデルをダウンロード後、UIが探している「public/model/」フォルダに配置する
       - name: Download Models
         run: |
           chmod +x models_download.sh
           ./models_download.sh
+          
+          # JSが読み込めるように examples/wasm/public/model/ フォルダを作り、そこへコピー
+          mkdir -p examples/wasm/public/model
+          cp models/*.gguf examples/wasm/public/model/
 
-      # モデルが揃った状態でWASMをビルドします
+      # モデルが正しい位置に揃った状態でWASMをビルドします
       - name: Build WASM
         run: |
           cd examples/wasm
