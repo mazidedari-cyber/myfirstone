@@ -22,6 +22,13 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
       
     steps:
+      # 1. あなたのリポジトリ（chat.html）を取得
+      - name: Checkout user repo
+        uses: actions/checkout@v4
+        with:
+          path: user-files
+
+      # 2. mmnga/mio-tts-cpp をクローン
       - name: Checkout mmnga/mio-tts-cpp
         uses: actions/checkout@v4
         with:
@@ -33,27 +40,31 @@ jobs:
         with:
           version: latest
 
-      # 【修正ポイント】モデルをダウンロード後、UIが探している「public/model/」フォルダに配置する
+      # モデルのダウンロードと配置
       - name: Download Models
         run: |
           chmod +x models_download.sh
           ./models_download.sh
-          
-          # JSが読み込めるように examples/wasm/public/model/ フォルダを作り、そこへコピー
           mkdir -p examples/wasm/public/model
           cp models/*.gguf examples/wasm/public/model/
 
-      # モデルが正しい位置に揃った状態でWASMをビルドします
+      # WASMのビルドを実行
       - name: Build WASM
         run: |
           cd examples/wasm
           chmod +x build.sh
           ./build.sh
 
+      # 3. あなたの chat.html を公開フォルダにコピー
+      - name: Copy chat.html to public
+        run: |
+          if [ -f user-files/chat.html ]; then
+            cp user-files/chat.html examples/wasm/chat.html
+          fi
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      # サイトとして公開するフォルダ（WASMのビルド出力先）をアップロード
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
