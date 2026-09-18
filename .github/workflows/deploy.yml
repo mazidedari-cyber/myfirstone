@@ -22,16 +22,19 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
       
     steps:
-      - name: Checkout user repo
-        uses: actions/checkout@v4
-        with:
-          path: user-files
-
+      # 【修正】1. 先に mmnga/mio-tts-cpp をクローン
       - name: Checkout mmnga/mio-tts-cpp
         uses: actions/checkout@v4
         with:
           repository: mmnga/mio-tts-cpp
           submodules: recursive
+
+      # 【修正】2. 後からあなた自身のリポジトリを取得（clean: false で絶対に消させない）
+      - name: Checkout user repo
+        uses: actions/checkout@v4
+        with:
+          path: user-files
+          clean: false
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
@@ -53,11 +56,16 @@ jobs:
           chmod +x build.sh
           ./build.sh
 
-      # 自立型 index.html を配置し、ビルドされたJSファイル名を自動検出して適合
+      # 自立型 index.html の配置とJS名の適合
       - name: Deploy Custom Standalone HTML
         run: |
+          echo "=== ユーザーファイル確認 ==="
+          ls -la user-files
+          
+          # あなたの index.html を配置
           cp user-files/index.html examples/wasm/index.html
-          # 生成されたJSファイル名（coi関連を除く）を取得
+          
+          # 生成されたJSファイル名を自動検出して適合
           TARGET_JS=$(cd examples/wasm && ls *.js 2>/dev/null | grep -v "coi" | head -n 1)
           echo "検出されたWASMスクリプト: $TARGET_JS"
           if [ -n "$TARGET_JS" ]; then
@@ -67,6 +75,7 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
+      # 成果物を公開
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
