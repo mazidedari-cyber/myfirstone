@@ -3,475 +3,327 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MioTTS × Gemini 対話プロトタイプ</title>
+  <title>MioTTS-0.1B × Gemini 自立推論システム</title>
   <style>
     * { box-sizing: border-box; }
     body {
-      font-family: sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       margin: 0;
       padding: 16px;
-      background: #f4f6f9;
-      color: #333;
+      background: #0f172a;
+      color: #e2e8f0;
       display: flex;
       flex-direction: column;
       height: 100vh;
     }
-    .header {
-      margin-bottom: 12px;
-    }
-    .api-key-box {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-    .api-key-box input {
-      flex: 1;
-      padding: 8px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-size: 14px;
-    }
-    /* パネル共通スタイル */
-    .panel-box {
-      background: #fff;
-      border: 1px solid #ced4da;
-      border-radius: 6px;
-      padding: 10px;
-      margin-bottom: 10px;
-      font-size: 13px;
-    }
-    .panel-box h4 {
-      margin: 0 0 8px 0;
-      font-size: 14px;
-      color: #495057;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: pointer;
-    }
-    .btn-group {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-bottom: 8px;
-    }
-    .sub-btn {
-      padding: 6px 12px;
-      background: #6c757d;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      font-size: 12px;
-      cursor: pointer;
-    }
-    .test-btn {
-      background: #28a745;
-    }
-    .file-status {
-      font-size: 12px;
-      color: #28a745;
-      font-weight: bold;
-      margin-top: 4px;
-    }
-    /* パラメータ調整用グリッド */
-    .param-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-top: 6px;
-      margin-bottom: 8px;
-    }
-    .param-item {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-    .param-item label {
-      font-size: 11px;
-      color: #555;
-    }
-    .param-item input[type="range"] {
-      width: 100%;
-    }
-    .chat-container {
-      flex: 1;
-      overflow-y: auto;
-      background: #fff;
-      border: 1px solid #ddd;
+    h2 { margin: 0 0 12px 0; font-size: 18px; color: #38bdf8; }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
       border-radius: 8px;
       padding: 12px;
       margin-bottom: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .message {
-      max-width: 85%;
-      padding: 10px 14px;
-      border-radius: 12px;
-      line-height: 1.5;
-      font-size: 15px;
-      word-break: break-word;
-    }
-    .user-msg {
-      align-self: flex-end;
-      background: #007bff;
-      color: #fff;
-    }
-    .ai-msg {
-      align-self: flex-start;
-      background: #e9ecef;
-      color: #212529;
-    }
-    .status {
       font-size: 13px;
-      color: #666;
-      margin-bottom: 6px;
     }
-    .input-area {
-      display: flex;
-      gap: 8px;
-    }
-    .input-area input {
+    .card-title { font-weight: bold; margin-bottom: 8px; color: #94a3b8; }
+    .flex-row { display: flex; gap: 8px; align-items: center; }
+    input[type="text"], input[type="password"] {
       flex: 1;
-      padding: 10px;
-      border: 1px solid #ccc;
+      padding: 8px 12px;
+      background: #0f172a;
+      border: 1px solid #475569;
       border-radius: 4px;
-      font-size: 16px;
+      color: #fff;
+      font-size: 14px;
     }
-    button.main-btn {
-      padding: 10px 16px;
-      background: #007bff;
+    input[type="file"] { font-size: 12px; color: #94a3b8; }
+    button {
+      padding: 8px 16px;
+      background: #2563eb;
       color: #fff;
       border: none;
       border-radius: 4px;
+      font-weight: bold;
       cursor: pointer;
-      font-size: 15px;
     }
-    button:disabled {
-      background: #aaa;
-      cursor: not-allowed;
+    button:disabled { background: #475569; cursor: not-allowed; }
+    select {
+      background: #0f172a;
+      border: 1px solid #475569;
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 4px;
     }
-    audio {
-      width: 100%;
-      margin-top: 8px;
+    .chat-box {
+      flex: 1;
+      overflow-y: auto;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 12px;
     }
+    .msg {
+      max-width: 80%;
+      padding: 8px 12px;
+      border-radius: 8px;
+      line-height: 1.4;
+      font-size: 14px;
+    }
+    .msg.user { align-self: flex-end; background: #2563eb; color: #fff; }
+    .msg.ai { align-self: flex-start; background: #334155; color: #f8fafc; }
+    .status-bar { font-size: 12px; color: #38bdf8; margin-bottom: 8px; }
+    .badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+    .badge.success { background: #065f46; color: #34d399; }
+    .badge.warn { background: #854d0e; color: #fde047; }
   </style>
 </head>
 <body>
 
-  <div class="header">
-    <div class="api-key-box">
-      <input type="password" id="apiKeyInput" placeholder="Gemini API Key を入力してください">
-      <button class="main-btn" id="saveKeyBtn">保存</button>
+  <h2>🎙️ MioTTS-0.1B × Gemini 自立推論Web</h2>
+
+  <!-- 1. 設定パネル (API Key, GPU, GGUF) -->
+  <div class="card">
+    <div class="card-title">⚙️ システム構成 & モデルロード</div>
+    
+    <!-- Gemini API Key -->
+    <div class="flex-row" style="margin-bottom: 8px;">
+      <input type="password" id="apiKeyInput" placeholder="Gemini API Key を入力">
+      <button id="saveKeyBtn">保存</button>
     </div>
 
-    <!-- 1. ファイル保存・即時読み込みパネル -->
-    <div class="panel-box">
-      <h4>📁 オフライン・ファイル管理</h4>
-      <div class="btn-group">
-        <button class="sub-btn" id="exportModelBtn">📥 モデル(GGUF)を保存</button>
-        <button class="sub-btn" id="exportWasmBtn">📥 WASMバイナリを保存</button>
-      </div>
-      <div style="margin-top: 4px;">
-        <label style="font-weight: bold; font-size: 11px;">📂 端末からファイルを選択して即読込:</label><br>
-        <input type="file" id="localFileInput" multiple accept=".gguf,.wasm,.data" style="margin-top: 2px; font-size: 11px;">
-      </div>
-      <div id="fileStatus" class="file-status">ステータス: ネットから取得待機中</div>
+    <!-- 演算バックエンド (CPU / GPU) -->
+    <div class="flex-row" style="margin-bottom: 8px;">
+      <label>演算モード:</label>
+      <select id="backendSelect">
+        <option value="cpu">💻 CPU (WASM)</option>
+        <option value="webgpu">⚡ スマホGPU (WebGPU)</option>
+      </select>
+      <span id="gpuStatus" class="badge warn">GPU確認中...</span>
     </div>
 
-    <!-- 2. 【新設】参照音声 & パラメータ調整テストボックス -->
-    <div class="panel-box">
-      <h4>⚙️ 音声データ参照 & パラメータ調整テスト</h4>
-      
-      <!-- 参照音声設定 -->
-      <div style="margin-bottom: 8px;">
-        <label style="font-weight: bold; font-size: 11px;">🎙️ 参照音声（声色クローン用）:</label>
-        <input type="file" id="refAudioInput" accept="audio/*" style="font-size: 11px; margin-top: 2px; width: 100%;">
-        <input type="text" id="refTextInput" placeholder="参照音声の発話内容（任意）" style="width: 100%; font-size: 12px; margin-top: 4px; padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
-      </div>
-
-      <!-- パラメータ調整スライダー群 -->
-      <div class="param-grid">
-        <div class="param-item">
-          <label>話速 (Speed): <span id="valSpeed">1.0</span>x</label>
-          <input type="range" id="paramSpeed" min="0.5" max="2.0" step="0.1" value="1.0">
-        </div>
-        <div class="param-item">
-          <label>Temperature: <span id="valTemp">0.7</span></label>
-          <input type="range" id="paramTemp" min="0.1" max="1.5" step="0.05" value="0.7">
-        </div>
-        <div class="param-item">
-          <label>Top-P: <span id="valTopP">0.9</span></label>
-          <input type="range" id="paramTopP" min="0.1" max="1.0" step="0.05" value="0.9">
-        </div>
-      </div>
-
-      <!-- 単体テスト発話エリア -->
-      <div style="display: flex; gap: 6px; margin-top: 8px;">
-        <input type="text" id="testTextInput" placeholder="テスト用テキストを入力..." value="こんにちは、設定した音声のテストです。" style="flex: 1; font-size: 12px; padding: 6px; border: 1px solid #ccc; border-radius: 4px;">
-        <button class="sub-btn test-btn" id="runTestBtn">▶️ パラメータでテスト生成</button>
-      </div>
+    <!-- ローカルGGUF直接読み込み -->
+    <div>
+      <label style="font-weight: bold;">📂 端末のGGUFモデルを直接読み込む (MioTTS-0.1B-Q8_0.gguf):</label><br>
+      <input type="file" id="ggufFileInput" accept=".gguf" style="margin-top: 4px;">
+      <div id="modelStatus" style="font-size: 11px; color: #94a3b8; margin-top: 4px;">モデル: 未ロード</div>
     </div>
-
-    <div class="status" id="statusText">待機中</div>
-    <audio id="audioPlayer" controls></audio>
   </div>
 
-  <div class="chat-container" id="chatContainer">
-    <div class="message ai-msg">こんにちは！何か話しかけてみてください。</div>
+  <div class="status-bar" id="statusText">システム待機中</div>
+
+  <!-- 2. チャット履歴エリア -->
+  <div class="chat-box" id="chatBox">
+    <div class="msg ai">準備完了。GGUFモデルを読み込むか、そのまま話しかけてください。</div>
   </div>
 
-  <div class="input-area">
+  <!-- 3. 入力エリア -->
+  <div class="flex-row">
     <input type="text" id="userInput" placeholder="メッセージを入力...">
-    <button class="main-btn" id="sendBtn">送信</button>
+    <button id="sendBtn">送信</button>
   </div>
+
+  <!-- WASMランタイムスクリプト（build.sh が出力するコアエンジン） -->
+  <script src="mio-tts.js"></script>
 
   <script>
-    // --- 要素の取得 ---
     const apiKeyInput = document.getElementById('apiKeyInput');
     const saveKeyBtn = document.getElementById('saveKeyBtn');
+    const backendSelect = document.getElementById('backendSelect');
+    const gpuStatus = document.getElementById('gpuStatus');
+    const ggufFileInput = document.getElementById('ggufFileInput');
+    const modelStatus = document.getElementById('modelStatus');
+    const statusText = document.getElementById('statusText');
+    const chatBox = document.getElementById('chatBox');
     const userInput = document.getElementById('userInput');
     const sendBtn = document.getElementById('sendBtn');
-    const chatContainer = document.getElementById('chatContainer');
-    const statusText = document.getElementById('statusText');
-    const audioPlayer = document.getElementById('audioPlayer');
 
-    // ファイル管理
-    const exportModelBtn = document.getElementById('exportModelBtn');
-    const exportWasmBtn = document.getElementById('exportWasmBtn');
-    const localFileInput = document.getElementById('localFileInput');
-    const fileStatus = document.getElementById('fileStatus');
+    // 内部状態
+    let isWasmReady = false;
+    let isModelLoaded = false;
+    let audioCtx = null;
 
-    // パラメータ・参照音声関連
-    const refAudioInput = document.getElementById('refAudioInput');
-    const refTextInput = document.getElementById('refTextInput');
-    const paramSpeed = document.getElementById('paramSpeed');
-    const paramTemp = document.getElementById('paramTemp');
-    const paramTopP = document.getElementById('paramTopP');
-    const valSpeed = document.getElementById('valSpeed');
-    const valTemp = document.getElementById('valTemp');
-    const valTopP = document.getElementById('valTopP');
-    const testTextInput = document.getElementById('testTextInput');
-    const runTestBtn = document.getElementById('runTestBtn');
-
-    // 参照音声のArrayBuffer保持用
-    let referenceAudioBuffer = null;
-
-    // スライダーの数値表示同期
-    paramSpeed.addEventListener('input', () => valSpeed.textContent = paramSpeed.value);
-    paramTemp.addEventListener('input', () => valTemp.textContent = paramTemp.value);
-    paramTopP.addEventListener('input', () => valTopP.textContent = paramTopP.value);
-
-    // 参照音声ファイル選択時の処理
-    refAudioInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) {
-        referenceAudioBuffer = null;
-        return;
-      }
-      referenceAudioBuffer = await file.arrayBuffer();
-      statusText.textContent = `参照音声を読み込みました: ${file.name}`;
-    });
-
-    // パラメータ取得ヘルパー関数
-    function getCurrentTtsParams() {
-      return {
-        speed: parseFloat(paramSpeed.value),
-        temperature: parseFloat(paramTemp.value),
-        topP: parseFloat(paramTopP.value),
-        refAudio: referenceAudioBuffer,
-        refText: refTextInput.value.trim()
-      };
-    }
-
-    // 保存済みのローカルファイルデータを保持するマップ
-    window.loadedLocalFiles = window.loadedLocalFiles || {};
-
+    // APIキー復元
     apiKeyInput.value = localStorage.getItem('gemini_api_key') || '';
-
-    saveKeyBtn.addEventListener('click', () => {
+    saveKeyBtn.onclick = () => {
       localStorage.setItem('gemini_api_key', apiKeyInput.value.trim());
       alert('APIキーを保存しました。');
-    });
+    };
 
-    function appendMessage(text, isUser) {
-      const msg = document.createElement('div');
-      msg.className = `message ${isUser ? 'user-msg' : 'ai-msg'}`;
-      msg.textContent = text;
-      chatContainer.appendChild(msg);
-      chatContainer.scrollTop = chatContainer.scrollHeight;
+    // 1. WebGPU の直接判定
+    async function checkWebGPU() {
+      if ('gpu' in navigator) {
+        try {
+          const adapter = await navigator.gpu.requestAdapter();
+          if (adapter) {
+            gpuStatus.textContent = 'WebGPU利用可能 ✅';
+            gpuStatus.className = 'badge success';
+            return;
+          }
+        } catch (e) {}
+      }
+      gpuStatus.textContent = 'CPUモードのみ 💻';
+      gpuStatus.className = 'badge warn';
+      backendSelect.value = 'cpu';
     }
+    checkWebGPU();
 
-    // -------------------------------------------------------------
-    // ファイルを端末のストレージに出力（ダウンロード保存）する処理
-    // -------------------------------------------------------------
-    async function downloadAndSave(url, defaultFilename) {
-      fileStatus.textContent = `ダウンロード中: ${defaultFilename} ...`;
+    // 2. Emscripten WASMランタイムの初期化検知
+    window.Module = window.Module || {};
+    Module.onRuntimeInitialized = () => {
+      isWasmReady = true;
+      statusText.textContent = "WASMエンジン初期化完了 ✅";
+      console.log("MioTTS WASM Core Ready");
+
+      // サーバー上のモデルがある場合は自動チェック
+      fetch('public/model/MioTTS-0.1B-Q8_0.gguf', { method: 'HEAD' }).then(res => {
+        if (res.ok) {
+          isModelLoaded = true;
+          modelStatus.textContent = "モデル: サーバー配置済みモデルを使用可能 ✅";
+        }
+      }).catch(() => {});
+    };
+
+    // 3. 端末のローカルGGUFファイルを直接メモリ(WASM FS)に書き込む処理
+    ggufFileInput.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      statusText.textContent = `GGUF読み込み中: ${file.name} ...`;
+      modelStatus.textContent = "メモリ展開中...";
+
       try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ファイルが見つかりません`);
-        const blob = await res.blob();
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8View = new Uint8Array(arrayBuffer);
 
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = defaultFilename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(a.href);
-
-        fileStatus.textContent = `✅ 保存完了: ${defaultFilename} を端末に書き出しました`;
+        // WASMの仮想ファイルシステム(FS)に直接配置
+        if (typeof FS !== 'undefined') {
+          try { FS.mkdirTree('/models'); } catch(e) {}
+          FS.writeFile(`/models/${file.name}`, uint8View);
+          
+          isModelLoaded = true;
+          modelStatus.textContent = `モデル: ${file.name} をメモリに直展開完了 ✅ (通信ゼロ)`;
+          statusText.textContent = "ローカルモデルの準備完了";
+          alert(`GGUFファイル [${file.name}] を直接読み込みました！`);
+        } else {
+          throw new Error("WASMファイルシステムが未初期化です");
+        }
       } catch (err) {
         console.error(err);
-        fileStatus.textContent = `❌ 保存失敗: ${err.message}`;
-        alert(`保存に失敗しました: ${err.message}`);
+        modelStatus.textContent = `読み込みエラー: ${err.message}`;
+        statusText.textContent = "エラーが発生しました";
       }
+    };
+
+    // メッセージ追加
+    function appendMsg(text, isUser) {
+      const el = document.createElement('div');
+      el.className = `msg ${isUser ? 'user' : 'ai'}`;
+      el.textContent = text;
+      chatBox.appendChild(el);
+      chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    exportModelBtn.addEventListener('click', () => {
-      downloadAndSave('public/model/MioTTS-0.1B-Q8_0.gguf', 'MioTTS-0.1B-Q8_0.gguf');
-    });
+    // 4. Gemini 3.5 Flash-Lite API 呼び出し
+    async function callGemini(prompt) {
+      const apiKey = apiKeyInput.value.trim();
+      if (!apiKey) throw new Error("Gemini APIキーを入力してください");
 
-    exportWasmBtn.addEventListener('click', () => {
-      downloadAndSave('mio-tts.wasm', 'mio-tts.wasm');
-    });
-
-    // -------------------------------------------------------------
-    // 端末に保存されたローカルファイルを選択して即時読み込む処理
-    // -------------------------------------------------------------
-    localFileInput.addEventListener('change', async (e) => {
-      const files = Array.from(e.target.files);
-      if (files.length === 0) return;
-
-      fileStatus.textContent = "端末内ファイルを読み込み中...";
-
-      for (const file of files) {
-        const buffer = await file.arrayBuffer();
-        window.loadedLocalFiles[file.name] = buffer;
-
-        if (typeof FS !== 'undefined' && FS.writeFile) {
-          try {
-            try { FS.mkdirTree('/public/model'); } catch (e) {}
-            FS.writeFile(`/public/model/${file.name}`, new Uint8Array(buffer));
-            console.log(`WASM仮想FSに配置: /public/model/${file.name}`);
-          } catch (err) {
-            console.warn("WASM FS書き込み警告:", err);
-          }
-        }
-      }
-
-      const fileNames = files.map(f => f.name).join(', ');
-      fileStatus.textContent = `✅ 端末から即座にロード完了: [${fileNames}] (通信ゼロ)`;
-      alert(`以下のファイルを端末から読み込みました:\n${fileNames}`);
-    });
-
-    // -------------------------------------------------------------
-    // 1. Gemini API (gemini-3.5-flash-lite) 呼び出し処理
-    // -------------------------------------------------------------
-    async function callGemini(apiKey, prompt) {
-      const model = 'gemini-3.5-flash-lite';
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-      const response = await fetch(endpoint, {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          systemInstruction: {
-            parts: [{ text: "あなたは音声対話アシスタントです。1〜2文程度の短く簡潔な日本語で会話してください。" }]
-          }
+          systemInstruction: { parts: [{ text: "あなたは音声対話AIです。1〜2文程度の簡潔な日本語で会話してください。" }] }
         })
       });
 
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error?.message || `API Error: ${response.status}`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || "Gemini APIエラー");
       }
-
-      const data = await response.json();
+      const data = await res.json();
       return data.candidates[0].content.parts[0].text;
     }
 
-    // -------------------------------------------------------------
-    // 2. 音声生成関数の実行（パラメータ & 参照音声対応）
-    // -------------------------------------------------------------
-    async function synthesizeAndPlay(text, params = getCurrentTtsParams()) {
-      statusText.textContent = `音声合成中 (話速:${params.speed}x, Temp:${params.temperature})...`;
+    // 5. MioTTS-0.1B による直接音声合成 & 再生
+    async function runMioTtsSynthesis(text) {
+      statusText.textContent = "MioTTS-0.1B で音声生成中...";
 
-      /**
-       * 【WASMとの接続ポイント】
-       * params オブジェクトに設定値がすべて格納されています:
-       * - params.speed: 話速
-       * - params.temperature: 温度
-       * - params.topP: Top-P
-       * - params.refAudio: 参照音声のArrayBuffer (未指定ならnull)
-       * - params.refText: 参照音声の発話テキスト
-       */
-
-      // --- 動作確認用フォールバック（Web Speech API） ---
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'ja-JP';
-        utterance.rate = params.speed; // スライダーの話速パラメータを反映
-        window.speechSynthesis.speak(utterance);
+      // AudioContext初期化（モバイルの自動再生ロック解除）
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
       }
 
-      statusText.textContent = "待機中";
+      // 出力ファイルパス
+      const outPath = '/output.wav';
+      try {
+        if (typeof FS !== 'undefined' && FS.unlink) {
+          try { FS.unlink(outPath); } catch(e) {}
+        }
+
+        // WASMの実行: CLI/メイン関数を直接引数指定で呼び出す
+        // (-m: LLMモデル, -p: プロンプトテキスト, -o: 出力WAV)
+        if (typeof Module.callMain === 'function') {
+          const modelPath = FS.analyzePath('/models/MioTTS-0.1B-Q8_0.gguf').exists 
+            ? '/models/MioTTS-0.1B-Q8_0.gguf' 
+            : 'public/model/MioTTS-0.1B-Q8_0.gguf';
+
+          const args = ['-m', modelPath, '-p', text, '-o', outPath];
+          Module.callMain(args);
+
+          // 生成されたWAVファイルをFSから直接読み出し
+          const wavData = FS.readFile(outPath);
+          const blob = new Blob([wavData.buffer], { type: 'audio/wav' });
+          const audio = new Audio(URL.createObjectURL(blob));
+          await audio.play();
+          statusText.textContent = "再生中 🔊";
+        } else if (typeof Module.synthesize === 'function') {
+          // 関数エクスポート形式の場合
+          await Module.synthesize(text);
+          statusText.textContent = "再生完了";
+        } else {
+          throw new Error("WASM推論関数 (callMain / synthesize) が見つかりません");
+        }
+      } catch (err) {
+        console.error("推論実行エラー:", err);
+        statusText.textContent = `推論エラー: ${err.message}`;
+        throw err;
+      }
     }
 
-    // -------------------------------------------------------------
-    // 単体テストボタン（チャットを通さずにパラメータを試す）
-    // -------------------------------------------------------------
-    runTestBtn.addEventListener('click', async () => {
-      const text = testTextInput.value.trim();
-      if (!text) return;
-      audioPlayer.play().catch(() => {}); // モバイルのオーディオ制限解除
-      const params = getCurrentTtsParams();
-      await synthesizeAndPlay(text, params);
-    });
-
-    // -------------------------------------------------------------
-    // 送信ハンドラー（対話時にもパラメータを反映）
-    // -------------------------------------------------------------
+    // 6. メイン対話ループ
     async function handleSend() {
-      const apiKey = apiKeyInput.value.trim();
       const text = userInput.value.trim();
-
-      if (!apiKey) {
-        alert("Gemini APIキーを入力して保存してください。");
-        return;
-      }
       if (!text) return;
-
-      audioPlayer.play().catch(() => {});
 
       userInput.value = '';
       sendBtn.disabled = true;
-      appendMessage(text, true);
+      appendMsg(text, true);
 
       try {
-        statusText.textContent = "Gemini応答生成中...";
-        const replyText = await callGemini(apiKey, text);
-        appendMessage(replyText, false);
+        statusText.textContent = "Gemini 3.5 Flash-Lite に問い合わせ中...";
+        const reply = await callGemini(text);
+        appendMsg(reply, false);
 
-        // 調整したパラメータと参照音声を使って返答を発話
-        const params = getCurrentTtsParams();
-        await synthesizeAndPlay(replyText, params);
-      } catch (error) {
-        console.error(error);
-        statusText.textContent = "エラーが発生しました";
-        appendMessage(`エラー: ${error.message}`, false);
+        await runMioTtsSynthesis(reply);
+      } catch (err) {
+        appendMsg(`エラー: ${err.message}`, false);
       } finally {
         sendBtn.disabled = false;
+        if (statusText.textContent.includes("中")) statusText.textContent = "待機中";
       }
     }
 
-    sendBtn.addEventListener('click', handleSend);
-    userInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') handleSend();
-    });
+    sendBtn.onclick = handleSend;
+    userInput.onkeypress = (e) => { if (e.key === 'Enter') handleSend(); };
   </script>
 </body>
-  </html>
+</html>
