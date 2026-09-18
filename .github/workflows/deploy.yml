@@ -47,54 +47,39 @@ jobs:
           mkdir -p examples/wasm/public/model
           cp models/*.gguf examples/wasm/public/model/
 
-      # 【第1ステップ】WebGPUフラグ (-DGGML_WEBGPU=ON) を注入してWASMをビルド
-      - name: Build WASM with WebGPU
+      # WebGPUリンカーフラグ (-sUSE_WEBGPU=1) を含めて完全ビルド
+      - name: Build WASM with Full WebGPU Support
         run: |
           cd examples/wasm
           chmod +x build.sh
 
-          echo "=== 既存の build.sh を確認 ==="
-          cat build.sh
-
-          # cmake呼び出し部分に WebGPU 有効化フラグを注入
+          # 環境変数とcmakeフラグの両方でWebGPUライブラリを強制結合
+          export EMCC_CFLAGS="-sUSE_WEBGPU=1"
           if grep -q "emcmake cmake" build.sh; then
-            sed -i 's/emcmake cmake/emcmake cmake -DGGML_WEBGPU=ON/g' build.sh
+            sed -i 's/emcmake cmake/emcmake cmake -DGGML_WEBGPU=ON -DCMAKE_EXE_LINKER_FLAGS="-sUSE_WEBGPU=1" -DCMAKE_CXX_FLAGS="-sUSE_WEBGPU=1"/g' build.sh
           fi
 
-          echo "=== WebGPU有効化後の build.sh ==="
-          cat build.sh
-
-          # ビルド実行
           ./build.sh
 
       # 自立型 index.html の配置とスクリプト名の完全適合
       - name: Deploy Custom Standalone HTML
         run: |
-          echo "=== 1. ビルドされた全JS・WASMファイル ==="
-          find examples/wasm -name "*.js" -o -name "*.wasm"
-
-          # サブフォルダにあればルートへ集約
           find examples/wasm -mindepth 2 -name "*.js" -exec cp -v {} examples/wasm/ \;
           find examples/wasm -mindepth 2 -name "*.wasm" -exec cp -v {} examples/wasm/ \;
 
-          # coi以外のメインWASMスクリプトを特定
           TARGET_JS=$(cd examples/wasm && ls *.js 2>/dev/null | grep -v "coi" | head -n 1)
           echo "確定したメインスクリプト: $TARGET_JS"
 
-          # あなたの index.html を配置
           cp user-files/index.html examples/wasm/index.html
 
-          # 1. index.html 内の 'mio-tts.js' を実際のファイル名に確実に置換
           if [ -n "$TARGET_JS" ]; then
             sed -i "s|mio-tts\.js|$TARGET_JS|g" examples/wasm/index.html
-            # 2. 念のため mio-tts.js という別名コピーも配置
             cp -v "examples/wasm/$TARGET_JS" examples/wasm/mio-tts.js
           fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      # 成果物を公開
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
