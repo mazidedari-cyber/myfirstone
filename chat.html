@@ -31,6 +31,41 @@
       border-radius: 4px;
       font-size: 14px;
     }
+    /* ファイル管理用UIエリア */
+    .file-manager-box {
+      background: #fff;
+      border: 1px solid #ced4da;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+    .file-manager-box h4 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      color: #495057;
+    }
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .sub-btn {
+      padding: 6px 12px;
+      background: #6c757d;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .file-status {
+      font-size: 12px;
+      color: #28a745;
+      font-weight: bold;
+      margin-top: 4px;
+    }
     .chat-container {
       flex: 1;
       overflow-y: auto;
@@ -77,7 +112,7 @@
       border-radius: 4px;
       font-size: 16px;
     }
-    button {
+    button.main-btn {
       padding: 10px 16px;
       background: #007bff;
       color: #fff;
@@ -101,8 +136,23 @@
   <div class="header">
     <div class="api-key-box">
       <input type="password" id="apiKeyInput" placeholder="Gemini API Key を入力してください">
-      <button id="saveKeyBtn">保存</button>
+      <button class="main-btn" id="saveKeyBtn">保存</button>
     </div>
+
+    <!-- 案2: ファイル保存・即時読み込みエリア -->
+    <div class="file-manager-box">
+      <h4>📁 オフライン・高速起動用ファイル管理</h4>
+      <div class="btn-group">
+        <button class="sub-btn" id="exportModelBtn">📥 モデルファイル(GGUF)を端末に保存</button>
+        <button class="sub-btn" id="exportWasmBtn">📥 WASMバイナリを端末に保存</button>
+      </div>
+      <div style="margin-top: 6px;">
+        <label style="font-weight: bold;">📂 端末のファイルから直接読み込む:</label><br>
+        <input type="file" id="localFileInput" multiple accept=".gguf,.wasm,.data" style="margin-top: 4px; font-size: 12px;">
+      </div>
+      <div id="fileStatus" class="file-status">ステータス: ネットから取得待機中</div>
+    </div>
+
     <div class="status" id="statusText">待機中</div>
     <audio id="audioPlayer" controls></audio>
   </div>
@@ -113,10 +163,11 @@
 
   <div class="input-area">
     <input type="text" id="userInput" placeholder="メッセージを入力...">
-    <button id="sendBtn">送信</button>
+    <button class="main-btn" id="sendBtn">送信</button>
   </div>
 
   <script>
+    // --- 要素の取得 ---
     const apiKeyInput = document.getElementById('apiKeyInput');
     const saveKeyBtn = document.getElementById('saveKeyBtn');
     const userInput = document.getElementById('userInput');
@@ -124,6 +175,15 @@
     const chatContainer = document.getElementById('chatContainer');
     const statusText = document.getElementById('statusText');
     const audioPlayer = document.getElementById('audioPlayer');
+
+    // ファイル管理関連
+    const exportModelBtn = document.getElementById('exportModelBtn');
+    const exportWasmBtn = document.getElementById('exportWasmBtn');
+    const localFileInput = document.getElementById('localFileInput');
+    const fileStatus = document.getElementById('fileStatus');
+
+    // 保存済みのローカルファイルデータを保持するマップ
+    window.loadedLocalFiles = window.loadedLocalFiles || {};
 
     apiKeyInput.value = localStorage.getItem('gemini_api_key') || '';
 
@@ -140,7 +200,78 @@
       chatContainer.scrollTop = chatContainer.scrollHeight;
     }
 
-    // 1. Gemini 3.5 Flash-Lite 呼び出し
+    // -------------------------------------------------------------
+    // 【案2】ファイルを端末のストレージに出力（ダウンロード保存）する処理
+    // -------------------------------------------------------------
+    async function downloadAndSave(url, defaultFilename) {
+      fileStatus.textContent = `ダウンロード中: ${defaultFilename} ...`;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ファイルが見つかりません`);
+        const blob = await res.blob();
+
+        // ブラウザから端末ストレージにファイルとしてダウンロード出力
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = defaultFilename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+
+        fileStatus.textContent = `✅ 保存完了: ${defaultFilename} を端末のフォルダに書き出しました`;
+      } catch (err) {
+        console.error(err);
+        fileStatus.textContent = `❌ 保存失敗: ${err.message}`;
+        alert(`保存に失敗しました: ${err.message}`);
+      }
+    }
+
+    // モデルファイル保存ボタン
+    exportModelBtn.addEventListener('click', () => {
+      downloadAndSave('public/model/MioTTS-0.1B-Q8_0.gguf', 'MioTTS-0.1B-Q8_0.gguf');
+    });
+
+    // WASMファイル保存ボタン
+    exportWasmBtn.addEventListener('click', () => {
+      // 本家ビルドで出力されたWASM名を指定して保存
+      downloadAndSave('mio-tts.wasm', 'mio-tts.wasm');
+    });
+
+    // -------------------------------------------------------------
+    // 【案2】端末に保存されたローカルファイルを選択して即時読み込む処理
+    // -------------------------------------------------------------
+    localFileInput.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files);
+      if (files.length === 0) return;
+
+      fileStatus.textContent = "端末内ファイルを読み込み中...";
+
+      for (const file of files) {
+        const buffer = await file.arrayBuffer();
+        window.loadedLocalFiles[file.name] = buffer;
+
+        // Emscripten (WASM) の仮想ファイルシステム(FS)が存在する場合は直接書き込む
+        if (typeof FS !== 'undefined' && FS.writeFile) {
+          try {
+            // public/model フォルダを作成して配置
+            try { FS.mkdirTree('/public/model'); } catch (e) {}
+            FS.writeFile(`/public/model/${file.name}`, new Uint8Array(buffer));
+            console.log(`WASM仮想FSに配置成功: /public/model/${file.name}`);
+          } catch (err) {
+            console.warn("WASM FS書き込み警告:", err);
+          }
+        }
+      }
+
+      const fileNames = files.map(f => f.name).join(', ');
+      fileStatus.textContent = `✅ 端末から即座にロード完了: [${fileNames}] (通信ゼロ)`;
+      alert(`以下のファイルを端末から読み込みました:\n${fileNames}\nネット通信なしで利用可能です。`);
+    });
+
+    // -------------------------------------------------------------
+    // 1. Gemini API (gemini-3.5-flash-lite) 呼び出し処理
+    // -------------------------------------------------------------
     async function callGemini(apiKey, prompt) {
       const model = 'gemini-3.5-flash-lite';
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -151,7 +282,7 @@
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           systemInstruction: {
-            parts: [{ text: "あなたは音声対話アシスタントです。1〜2文程度の簡潔な日本語で会話してください。" }]
+            parts: [{ text: "あなたは音声対話アシスタントです。1〜2文程度の短く簡潔な日本語で会話してください。" }]
           }
         })
       });
@@ -165,12 +296,13 @@
       return data.candidates[0].content.parts[0].text;
     }
 
+    // -------------------------------------------------------------
     // 2. 音声生成関数の実行
+    // -------------------------------------------------------------
     async function synthesizeAndPlay(text) {
       statusText.textContent = "音声合成中...";
 
-      // ※プロトタイプ動作確認用: まずはWeb Speech APIで発話します
-      // （WASM側の関数との最終連携確認が取れ次第、WASM実行処理に切り替えます）
+      // ※プロトタイプ動作確認用: Web Speech APIで発話
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
@@ -181,7 +313,9 @@
       statusText.textContent = "待機中";
     }
 
+    // -------------------------------------------------------------
     // 送信ハンドラー
+    // -------------------------------------------------------------
     async function handleSend() {
       const apiKey = apiKeyInput.value.trim();
       const text = userInput.value.trim();
@@ -192,7 +326,6 @@
       }
       if (!text) return;
 
-      // モバイルのオーディオ制限解除
       audioPlayer.play().catch(() => {});
 
       userInput.value = '';
