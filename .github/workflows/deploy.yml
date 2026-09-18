@@ -22,18 +22,11 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
       
     steps:
-      # 【修正点1】先に mmnga/mio-tts-cpp をベースとしてクローン
       - name: Checkout mmnga/mio-tts-cpp
         uses: actions/checkout@v4
         with:
           repository: mmnga/mio-tts-cpp
           submodules: recursive
-
-      # 【修正点2】後からあなた自身のリポジトリ（chat.html）を user-files フォルダに取得
-      - name: Checkout user repo
-        uses: actions/checkout@v4
-        with:
-          path: user-files
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
@@ -55,18 +48,180 @@ jobs:
           chmod +x build.sh
           ./build.sh
 
-      # 【修正点3】chat.html を確実に公開フォルダにコピー
-      - name: Copy chat.html to public
+      # 【全自動合体】本家のMioTTS画面にGemini対話機能を注入する
+      - name: Inject Gemini Dialogue System into MioTTS
         run: |
-          echo "ユーザーファイルを確認します:"
-          ls -la user-files
-          cp user-files/chat.html examples/wasm/chat.html
-          echo "chat.html のコピーに成功しました！"
+          python3 - << 'EOF'
+          import re
+
+          html_file = "examples/wasm/index.html"
+          with open(html_file, "r", encoding="utf-8") as f:
+              html = f.read()
+
+          # 画面上部に合体させるGeminiチャットUI
+          gemini_ui = """
+          <!-- ===== Gemini AI 対話コントロールパネル ===== -->
+          <div id="gemini-chat-panel" style="background:#f8f9fa; border:2px solid #007bff; border-radius:8px; padding:14px; margin:14px auto; max-width:800px; font-family:sans-serif; box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+            <h3 style="margin-top:0; margin-bottom:8px; color:#007bff; font-size:16px;">🤖 Gemini 3.5 Flash-Lite × 本物MioTTS-0.1B 音声対話</h3>
+            <div style="display:flex; gap:6px; margin-bottom:10px;">
+              <input type="password" id="geminiApiKey" placeholder="Gemini API Key を入力" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px; font-size:13px;">
+              <button id="saveApiKeyBtn" style="padding:8px 14px; background:#007bff; color:#fff; border:none; border-radius:4px; cursor:pointer;">キー保存</button>
+            </div>
+            <div id="geminiChatLog" style="height:140px; overflow-y:auto; background:#fff; border:1px solid #ddd; border-radius:6px; padding:8px; margin-bottom:10px; font-size:13px; display:flex; flex-direction:column; gap:6px;">
+              <div style="color:#666;">💬 メッセージを入力すると、Geminiが返答を作成し、下の本物MioTTSがCPUで音声合成します。</div>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="geminiUserInput" placeholder="AIに話しかける..." style="flex:1; padding:10px; border:1px solid #ccc; border-radius:4px; font-size:15px;">
+              <button id="geminiSendBtn" style="padding:10px 18px; background:#28a745; color:#fff; border:none; border-radius:4px; font-size:15px; font-weight:bold; cursor:pointer;">送信</button>
+            </div>
+            <div id="geminiStatus" style="font-size:12px; color:#555; margin-top:6px; font-weight:bold;">ステータス: 待機中</div>
+          </div>
+          <!-- ============================================== -->
+          """
+
+          # 連携自動化JavaScript
+          gemini_script = """
+          <script>
+          (function() {
+            const apiKeyInput = document.getElementById('geminiApiKey');
+            const saveBtn = document.getElementById('saveApiKeyBtn');
+            const userInput = document.getElementById('geminiUserInput');
+            const sendBtn = document.getElementById('geminiSendBtn');
+            const chatLog = document.getElementById('geminiChatLog');
+            const statusEl = document.getElementById('geminiStatus');
+
+            apiKeyInput.value = localStorage.getItem('gemini_api_key') || '';
+            saveBtn.onclick = () => {
+              localStorage.setItem('gemini_api_key', apiKeyInput.value.trim());
+              alert('APIキーを保存しました。');
+            };
+
+            function appendLog(text, isUser) {
+              const d = document.createElement('div');
+              d.style.padding = '6px 10px';
+              d.style.borderRadius = '8px';
+              d.style.maxWidth = '85%';
+              d.style.wordBreak = 'break-word';
+              if (isUser) {
+                d.style.alignSelf = 'flex-end';
+                d.style.background = '#007bff';
+                d.style.color = '#fff';
+              } else {
+                d.style.alignSelf = 'flex-start';
+                d.style.background = '#e9ecef';
+                d.style.color = '#000';
+              }
+              d.textContent = text;
+              chatLog.appendChild(d);
+              chatLog.scrollTop = chatLog.scrollHeight;
+            }
+
+            // 本家MioTTSの入力欄と合成ボタンを自動検出して動かす処理
+            function triggerRealMioTts(replyText) {
+              // 1. 本家のテキスト入力欄（textarea または text input）を探す
+              const inputs = Array.from(document.querySelectorAll('textarea, input[type="text"]'))
+                .filter(el => !el.closest('#gemini-chat-panel'));
+              
+              if (inputs.length > 0) {
+                const targetInput = inputs[0];
+                targetInput.value = replyText;
+                targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+                targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+
+              // 2. 本家の音声合成ボタンを探して自動クリック
+              const buttons = Array.from(document.querySelectorAll('button, input[type="button"]'))
+                .filter(el => !el.closest('#gemini-chat-panel'));
+
+              const synthBtn = buttons.find(b => {
+                const t = (b.textContent || b.value || '').trim();
+                return /合成|生成|発話|再生|Synthesize|Generate|TTS/i.test(t);
+              }) || buttons[0];
+
+              if (synthBtn) {
+                statusEl.textContent = 'MioTTS-0.1B (CPU) で音声合成を実行中...';
+                synthBtn.click();
+              } else {
+                statusEl.textContent = 'テキストをセットしました。下の生成ボタンを押してください。';
+              }
+            }
+
+            // Gemini 3.5 Flash-Lite 呼び出し
+            async function handleGeminiSend() {
+              const key = apiKeyInput.value.trim();
+              const text = userInput.value.trim();
+              if (!key) { alert('Gemini API Key を入力してください'); return; }
+              if (!text) return;
+
+              userInput.value = '';
+              sendBtn.disabled = true;
+              appendLog(text, true);
+              statusEl.textContent = 'Gemini 3.5 Flash-Lite 応答待機中...';
+
+              try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${key}`;
+                const res = await fetch(url, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [{ parts: [{ text }] }],
+                    systemInstruction: { parts: [{ text: "あなたは音声対話AIです。1〜2文程度の簡潔な日本語で会話してください。" }] }
+                  })
+                });
+
+                if (!res.ok) {
+                  const err = await res.json();
+                  throw new Error(err.error?.message || 'API通信エラー');
+                }
+
+                const data = await res.json();
+                const reply = data.candidates[0].content.parts[0].text;
+                appendLog(reply, false);
+
+                // 本物のMioTTSに渡して発話を実行
+                triggerRealMioTts(reply);
+
+              } catch (err) {
+                console.error(err);
+                statusEl.textContent = 'エラー: ' + err.message;
+                appendLog('エラー: ' + err.message, false);
+              } finally {
+                sendBtn.disabled = false;
+              }
+            }
+
+            sendBtn.onclick = handleGeminiSend;
+            userInput.onkeypress = (e) => { if (e.key === 'Enter') handleGeminiSend(); };
+          })();
+          </script>
+          """
+
+          # <body> の直後にUIを、</body> の直前にスクリプトを注入
+          body_match = re.search(r"<body[^>]*>", html, re.IGNORECASE)
+          if body_match:
+              pos = body_match.end()
+              html = html[:pos] + "\n" + gemini_ui + "\n" + html[pos:]
+          else:
+              html = gemini_ui + "\n" + html
+
+          if "</body>" in html:
+              pos = html.rfind("</body>")
+              html = html[:pos] + "\n" + gemini_script + "\n" + html[pos:]
+          else:
+              html = html + "\n" + gemini_script
+
+          # index.html を更新し、chat.html としても保存（どちらのURLでも開けるようにする）
+          with open("examples/wasm/index.html", "w", encoding="utf-8") as f:
+              f.write(html)
+          with open("examples/wasm/chat.html", "w", encoding="utf-8") as f:
+              f.write(html)
+          print("Gemini対話UIの自動合体に成功しました！")
+          EOF
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      # 公開フォルダをアップロード
+      # サイトとして公開
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
