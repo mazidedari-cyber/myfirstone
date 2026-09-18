@@ -58,10 +58,7 @@
       border-radius: 4px;
     }
     
-    /* 進捗バー表示スタイル */
-    .progress-box {
-      margin-bottom: 8px;
-    }
+    .progress-box { margin-bottom: 8px; }
     .progress-track {
       width: 100%;
       height: 8px;
@@ -104,9 +101,8 @@
     .badge.success { background: #065f46; color: #34d399; }
     .badge.warn { background: #854d0e; color: #fde047; }
 
-    /* スマホ画面用 診断ログターミナル */
     .log-terminal {
-      height: 90px;
+      height: 110px;
       background: #000;
       border: 1px solid #334155;
       border-radius: 4px;
@@ -122,7 +118,6 @@
   </style>
 
   <script>
-    // 診断ログ出力関数（DOMロード前でもバッファリング）
     window.earlyLogs = [];
     window.logToScreen = function(text, isError = false) {
       console.log(text);
@@ -142,61 +137,34 @@
     window.cachedGgufName = null;
     window.isWasmReady = false;
 
-    // Emscripten の進捗ハンドラーとフック
+    // Emscripten のフック設定
     window.Module = {
       print: function(text) { window.logToScreen('[WASM] ' + text); },
       printErr: function(text) { window.logToScreen('[WASM-ERR] ' + text, true); },
-      
-      // 進捗状況（ダウンロード％やMB）の受け取り
       setStatus: function(text) {
         if (!text) return;
         window.logToScreen('[STATUS] ' + text);
-        
         const statusDetail = document.getElementById('statusDetail');
         const progressFill = document.getElementById('progressFill');
         if (!statusDetail || !progressFill) return;
 
-        // "Downloading data... (12345/67890)" 等の形式を解析
         const match = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
         if (match) {
           const desc = match[1].trim();
           const current = parseFloat(match[2]);
           const total = parseFloat(match[4]);
           const percent = Math.round((current / total) * 100);
-          
           progressFill.style.width = percent + '%';
           statusDetail.textContent = `${desc}: ${(current/1024/1024).toFixed(1)}MB / ${(total/1024/1024).toFixed(1)}MB (${percent}%)`;
         } else {
           statusDetail.textContent = text;
         }
-      },
-      
-      totalDependencies: 0,
-      monitorRunDependencies: function(left) {
-        this.totalDependencies = Math.max(this.totalDependencies, left);
-        if (left) {
-          window.Module.setStatus(`準備中... (${this.totalDependencies - left} / ${this.totalDependencies})`);
-        } else {
-          window.Module.setStatus('');
-        }
-      },
-
-      onRuntimeInitialized: function() {
-        window.logToScreen('★ WASM onRuntimeInitialized が正常に完了しました！');
-        window.isWasmReady = true;
-        if (window.notifyWasmReady) window.notifyWasmReady();
       }
     };
 
     window.onerror = function(msg, url, line) {
       window.logToScreen(`❌ JSエラー: ${msg} (${line}行目)`, true);
     };
-  </script>
-
-  <!-- WASMスクリプト読み込み -->
-  <script src="mio-tts.js" 
-          onload="window.logToScreen('WASMスクリプト (mio-tts.js) の取得に成功しました');"
-          onerror="window.logToScreen('❌ mio-tts.js の読み込みに失敗しました (404 Not Found): ' + this.src, true);">
   </script>
 </head>
 <body>
@@ -230,7 +198,7 @@
 
   <!-- 2. 進捗表示エリア -->
   <div class="progress-box">
-    <div class="status-text" id="statusText">WASMエンジンの読み込みを開始しています...</div>
+    <div class="status-text" id="statusText">WASMモジュール (ES Module) を読み込み中...</div>
     <div class="status-detail" id="statusDetail">待機中</div>
     <div class="progress-track">
       <div class="progress-fill" id="progressFill"></div>
@@ -248,7 +216,7 @@
     <button id="sendBtn">送信</button>
   </div>
 
-  <!-- 5. リアルタイム診断ログ（黒いターミナル） -->
+  <!-- 5. リアルタイム診断ログ -->
   <div style="font-size: 11px; color: #94a3b8; margin-bottom: 2px;">🔍 リアルタイム診断ログ:</div>
   <div class="log-terminal" id="logTerminal"></div>
 
@@ -267,7 +235,6 @@
     const sendBtn = document.getElementById('sendBtn');
     const logTerminal = document.getElementById('logTerminal');
 
-    // 事前ログのフラッシュ
     if (window.earlyLogs && window.earlyLogs.length > 0) {
       logTerminal.textContent += window.earlyLogs.join('');
       window.earlyLogs = [];
@@ -282,8 +249,8 @@
     };
 
     function getFS() {
-      if (typeof FS !== 'undefined' && FS.writeFile) return FS;
       if (window.Module && window.Module.FS && window.Module.FS.writeFile) return window.Module.FS;
+      if (typeof FS !== 'undefined' && FS.writeFile) return FS;
       return null;
     }
 
@@ -332,32 +299,42 @@
       }
     };
 
-    // 初期化監視ポーリング
-    async function tryInitModule() {
-      const factory = window.createModule || window.initModule || window.mioTTS;
-      if (typeof factory === 'function' && !window.isWasmReady) {
-        try {
-          window.logToScreen('createModule/ファクトリ関数を検出。呼び出します...');
+    // 【最重要修正】ESモジュールとして正しくインポート・初期化する処理
+    async function loadWasmModule() {
+      window.logToScreen("WASMモジュール (mio-tts.js) の動的インポートを開始します...");
+      try {
+        const wasmExports = await import('./mio-tts.js');
+        window.logToScreen("mio-tts.js のインポートに成功しました！");
+
+        // Emscripten ES6 のファクトリ関数（createModule / default）を実行
+        const factory = wasmExports.default || wasmExports.createModule || wasmExports;
+        if (typeof factory === 'function') {
+          window.logToScreen("ファクトリ関数を実行してエンジンを初期化します...");
           window.Module = await factory(window.Module || {});
-          window.isWasmReady = true;
-          window.notifyWasmReady();
-          return true;
-        } catch (e) {
-          window.logToScreen('ファクトリ実行例外: ' + e.message, true);
+        } else {
+          window.Module = wasmExports;
         }
-      }
-      if (getFS() && !window.isWasmReady) {
-        window.logToScreen('FSオブジェクトの有効化を検出しました');
+
+        window.logToScreen("★ WASM エンジンの初期化が完了しました！");
         window.isWasmReady = true;
         window.notifyWasmReady();
-        return true;
+
+        // 利用可能な関数をログに出力
+        if (window.Module) {
+          const funcs = Object.keys(window.Module).filter(k => typeof window.Module[k] === 'function');
+          window.logToScreen('検出されたWASM関数: ' + funcs.slice(0, 10).join(', '));
+        }
+      } catch (err) {
+        window.logToScreen("❌ モジュール読み込み例外: " + err.message, true);
+        statusText.textContent = "WASM読み込みエラー";
+        statusText.style.color = '#ef4444';
       }
-      return false;
     }
 
-    const timer = setInterval(async () => {
-      if (await tryInitModule()) clearInterval(timer);
-    }, 500);
+    // ページ読み込み完了後にWASMをインポート
+    window.addEventListener('DOMContentLoaded', () => {
+      loadWasmModule();
+    });
 
     // GGUFファイル選択処理
     ggufFileInput.onchange = async (e) => {
@@ -401,7 +378,7 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    // Gemini 3.5 Flash-Lite API
+    // Gemini API
     async function callGemini(prompt) {
       const apiKey = apiKeyInput.value.trim();
       if (!apiKey) throw new Error("Gemini APIキーを入力してください");
@@ -425,7 +402,7 @@
       return data.candidates[0].content.parts[0].text;
     }
 
-    // MioTTS-0.1B による音声合成 & 再生
+    // 音声推論
     async function runMioTtsSynthesis(text) {
       statusText.textContent = "MioTTS-0.1B で音声生成中...";
       window.logToScreen('音声推論開始: ' + text);
@@ -444,11 +421,11 @@
       try {
         try { fs.unlink(outPath); } catch(e) {}
 
-        if (typeof Module.callMain === 'function') {
-          const modelPath = fs.analyzePath(`/models/${window.cachedGgufName || 'MioTTS-0.1B-Q8_0.gguf'}`).exists 
-            ? `/models/${window.cachedGgufName || 'MioTTS-0.1B-Q8_0.gguf'}` 
-            : 'public/model/MioTTS-0.1B-Q8_0.gguf';
+        const modelPath = fs.analyzePath(`/models/${window.cachedGgufName || 'MioTTS-0.1B-Q8_0.gguf'}`).exists 
+          ? `/models/${window.cachedGgufName || 'MioTTS-0.1B-Q8_0.gguf'}` 
+          : 'public/model/MioTTS-0.1B-Q8_0.gguf';
 
+        if (typeof Module.callMain === 'function') {
           window.logToScreen(`Module.callMain 実行 (model: ${modelPath})`);
           const args = ['-m', modelPath, '-p', text, '-o', outPath];
           Module.callMain(args);
@@ -472,7 +449,6 @@
       }
     }
 
-    // 送信ハンドラー
     async function handleSend() {
       const text = userInput.value.trim();
       if (!text) return;
