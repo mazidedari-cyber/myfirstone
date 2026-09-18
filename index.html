@@ -58,23 +58,8 @@
       border-radius: 4px;
     }
     
-    .progress-box { margin-bottom: 8px; }
-    .progress-track {
-      width: 100%;
-      height: 8px;
-      background: #334155;
-      border-radius: 4px;
-      overflow: hidden;
-      margin-top: 4px;
-    }
-    .progress-fill {
-      width: 0%;
-      height: 100%;
-      background: #38bdf8;
-      transition: width 0.2s ease;
-    }
-    .status-text { font-size: 12px; color: #38bdf8; font-weight: bold; }
-    .status-detail { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+    .status-text { font-size: 13px; color: #38bdf8; font-weight: bold; margin-bottom: 4px; }
+    .status-detail { font-size: 11px; color: #94a3b8; margin-bottom: 6px; }
 
     .chat-box {
       flex: 1;
@@ -102,7 +87,7 @@
     .badge.warn { background: #854d0e; color: #fde047; }
 
     .log-terminal {
-      height: 110px;
+      height: 100px;
       background: #000;
       border: 1px solid #334155;
       border-radius: 4px;
@@ -133,53 +118,16 @@
       }
     };
 
-    // 【修正対策】WASMスクリプトが探すDOM要素を自動補完し、null.addEventListenerエラーを完全に防ぐ
-    const _origGetElementById = document.getElementById.bind(document);
-    document.getElementById = function(id) {
-      const el = _origGetElementById(id);
-      if (el) return el;
-      
-      // 要求された要素がなければ、ダミー要素を作って返す（クラッシュ回避）
-      window.logToScreen(`[DOM補完] 要求された要素 ID: "${id}" を自動生成しました`);
-      const mock = document.createElement(id === 'canvas' ? 'canvas' : 'div');
-      mock.id = id;
-      mock.style.display = 'none';
-      mock.value = '';
-      if (document.body) {
-        document.body.appendChild(mock);
-      } else {
-        window.addEventListener('DOMContentLoaded', () => document.body.appendChild(mock));
+    // ローカルGGUFファイルを fetch に割り込ませて直供給するインターセプター
+    window.localGgufFileBlob = null;
+    const origFetch = window.fetch;
+    window.fetch = async function(...args) {
+      const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+      if (window.localGgufFileBlob && url.includes('MioTTS-0.1B-Q8_0.gguf')) {
+        window.logToScreen('⚡【インターセプト成功】端末のローカルGGUFファイルをWASMに直供給します！');
+        return new Response(window.localGgufFileBlob);
       }
-      return mock;
-    };
-
-    window.cachedGgufBuffer = null;
-    window.cachedGgufName = null;
-    window.isWasmReady = false;
-
-    // Emscripten のフック設定
-    window.Module = {
-      print: function(text) { window.logToScreen('[WASM] ' + text); },
-      printErr: function(text) { window.logToScreen('[WASM-ERR] ' + text, true); },
-      setStatus: function(text) {
-        if (!text) return;
-        window.logToScreen('[STATUS] ' + text);
-        const statusDetail = document.getElementById('statusDetail');
-        const progressFill = document.getElementById('progressFill');
-        if (!statusDetail || !progressFill) return;
-
-        const match = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
-        if (match) {
-          const desc = match[1].trim();
-          const current = parseFloat(match[2]);
-          const total = parseFloat(match[4]);
-          const percent = Math.round((current / total) * 100);
-          progressFill.style.width = percent + '%';
-          statusDetail.textContent = `${desc}: ${(current/1024/1024).toFixed(1)}MB / ${(total/1024/1024).toFixed(1)}MB (${percent}%)`;
-        } else {
-          statusDetail.textContent = text;
-        }
-      }
+      return origFetch.apply(this, args);
     };
 
     window.onerror = function(msg, url, line) {
@@ -189,8 +137,34 @@
 </head>
 <body>
 
-  <!-- 【重要】Emscriptenが真っ先に探しに来るダミーキャンバスを配置 -->
-  <canvas id="canvas" style="display:none;"></canvas>
+  <!-- 【超重要】miottscpp.js が動作に必須とする要素群（初期値設定済み） -->
+  <div style="display: none;">
+    <canvas id="canvas"></canvas>
+    <textarea id="text"></textarea>
+    <button id="btn-generate"></button>
+    <button id="btn-stop"></button>
+    <div id="status"></div>
+    <div id="metrics"></div>
+    <select id="embedding"></select>
+    <input id="temp" type="number" value="0.7">
+    <input id="top-p" type="number" value="0.9">
+    <input id="top-k" type="number" value="40">
+    <input id="n-threads" type="number" value="4">
+    <input id="ctx-size" type="number" value="2048">
+    <input id="n-predict" type="number" value="512">
+    <input id="use-external-api" type="checkbox">
+    <div id="api-settings"></div>
+    <input id="api-base" value="">
+    <input id="api-key" value="">
+    <input id="api-model" value="">
+    <button id="btn-load-wavlm"></button>
+    <button id="btn-delete-reference"></button>
+    <button id="btn-record-start"></button>
+    <button id="btn-record-stop"></button>
+    <input id="ref-file" type="file">
+    <button id="btn-add-file"></button>
+    <div id="ref-status"></div>
+  </div>
 
   <h2>🎙️ MioTTS-0.1B × Gemini 自立推論Web</h2>
 
@@ -219,27 +193,26 @@
     </div>
   </div>
 
-  <!-- 2. 進捗表示エリア -->
-  <div class="progress-box">
-    <div class="status-text" id="statusText">WASMモジュール (ES Module) を読み込み中...</div>
-    <div class="status-detail" id="statusDetail">待機中</div>
-    <div class="progress-track">
-      <div class="progress-fill" id="progressFill"></div>
-    </div>
+  <!-- 音声プレーヤー（miottscpp.jsが出力音声をセットする場所） -->
+  <div style="margin-bottom: 8px;">
+    <audio id="player" controls style="width: 100%;"></audio>
   </div>
 
-  <!-- 3. チャットエリア -->
+  <div class="status-text" id="statusText">システム初期化中...</div>
+  <div class="status-detail" id="statusDetail">待機中</div>
+
+  <!-- 2. チャットエリア -->
   <div class="chat-box" id="chatBox">
-    <div class="msg ai">準備中...</div>
+    <div class="msg ai">準備完了！Gemini APIキーを保存し、話しかけてください。</div>
   </div>
 
-  <!-- 4. 入力エリア -->
+  <!-- 3. 入力エリア -->
   <div class="flex-row" style="margin-bottom: 8px;">
     <input type="text" id="userInput" placeholder="メッセージを入力...">
     <button id="sendBtn">送信</button>
   </div>
 
-  <!-- 5. リアルタイム診断ログ -->
+  <!-- 4. リアルタイム診断ログ -->
   <div style="font-size: 11px; color: #94a3b8; margin-bottom: 2px;">🔍 リアルタイム診断ログ:</div>
   <div class="log-terminal" id="logTerminal"></div>
 
@@ -252,30 +225,27 @@
     const modelStatus = document.getElementById('modelStatus');
     const statusText = document.getElementById('statusText');
     const statusDetail = document.getElementById('statusDetail');
-    const progressFill = document.getElementById('progressFill');
     const chatBox = document.getElementById('chatBox');
     const userInput = document.getElementById('userInput');
     const sendBtn = document.getElementById('sendBtn');
     const logTerminal = document.getElementById('logTerminal');
+
+    // miottscpp との連携要素
+    const textEl = document.getElementById('text');
+    const btnGenerate = document.getElementById('btn-generate');
+    const miottsStatus = document.getElementById('status');
+    const player = document.getElementById('player');
 
     if (window.earlyLogs && window.earlyLogs.length > 0) {
       logTerminal.textContent += window.earlyLogs.join('');
       window.earlyLogs = [];
     }
 
-    let audioCtx = null;
-
     apiKeyInput.value = localStorage.getItem('gemini_api_key') || '';
     saveKeyBtn.onclick = () => {
       localStorage.setItem('gemini_api_key', apiKeyInput.value.trim());
       alert('APIキーを保存しました。');
     };
-
-    function getFS() {
-      if (window.Module && window.Module.FS && window.Module.FS.writeFile) return window.Module.FS;
-      if (typeof FS !== 'undefined' && FS.writeFile) return FS;
-      return null;
-    }
 
     // WebGPU確認
     async function checkWebGPU() {
@@ -288,9 +258,7 @@
             window.logToScreen('WebGPU アダプター検出成功');
             return;
           }
-        } catch (e) {
-          window.logToScreen('WebGPU確認例外: ' + e.message);
-        }
+        } catch (e) {}
       }
       gpuStatus.textContent = 'CPUモードのみ 💻';
       gpuStatus.className = 'badge warn';
@@ -298,98 +266,47 @@
     }
     checkWebGPU();
 
-    // WASM準備完了時の処理
-    window.notifyWasmReady = function() {
-      statusText.textContent = "WASMエンジン初期化完了 ✅";
-      statusDetail.textContent = "準備完了";
-      progressFill.style.width = '100%';
-      const msgAi = document.querySelector('.msg.ai');
-      if (msgAi) msgAi.textContent = "準備完了！モデルを選択するか、話しかけてください。";
-
-      const fs = getFS();
-      if (window.cachedGgufBuffer && fs) {
-        try {
-          try { fs.mkdirTree('/models'); } catch(e) {}
-          fs.writeFile(`/models/${window.cachedGgufName}`, window.cachedGgufBuffer);
-          modelStatus.textContent = `モデル: ${window.cachedGgufName} をWASMメモリに配置完了 ✅ (通信ゼロ)`;
-          statusText.textContent = "モデル準備完了";
-          window.logToScreen(`保留されていたGGUF [${window.cachedGgufName}] をFSに配置完了`);
-          alert(`GGUFファイル [${window.cachedGgufName}] をWASMに展開しました！`);
-        } catch (err) {
-          modelStatus.textContent = `FS書き込みエラー: ${err.message}`;
-          window.logToScreen('FS書き込みエラー: ' + err.message, true);
-        }
+    // miottscpp.js の内部ステータス変化を画面に同期
+    const observer = new MutationObserver(() => {
+      if (miottsStatus && miottsStatus.textContent) {
+        statusDetail.textContent = miottsStatus.textContent;
+        window.logToScreen('[MioTTS-Status] ' + miottsStatus.textContent);
       }
+    });
+    observer.observe(miottsStatus, { childList: true, characterData: true, subtree: true });
+
+    // 音声再生が始まったら表示を切り替え
+    player.onplay = () => {
+      statusText.textContent = "音声再生中 🔊";
+      window.logToScreen('MioTTS 本物音声の再生を開始しました');
     };
 
-    // 動的インポート & 初期化実行
-    async function loadWasmModule() {
-      window.logToScreen("WASMモジュール (mio-tts.js) の動的インポートを開始します...");
-      try {
-        const wasmExports = await import('./mio-tts.js');
-        window.logToScreen("mio-tts.js のインポートに成功しました！");
-
-        const factory = wasmExports.default || wasmExports.createModule || wasmExports;
-        if (typeof factory === 'function') {
-          window.logToScreen("ファクトリ関数を実行してエンジンを初期化します...");
-          window.Module = await factory(window.Module || {});
-        } else {
-          window.Module = wasmExports;
-        }
-
-        window.logToScreen("★ WASM エンジンの初期化が完了しました！");
-        window.isWasmReady = true;
-        window.notifyWasmReady();
-
-        if (window.Module) {
-          const funcs = Object.keys(window.Module).filter(k => typeof window.Module[k] === 'function');
-          window.logToScreen('検出されたWASM関数: ' + funcs.slice(0, 10).join(', '));
-        }
-      } catch (err) {
-        window.logToScreen("❌ モジュール読み込み例外: " + err.message, true);
-        statusText.textContent = "WASM読み込みエラー";
-        statusText.style.color = '#ef4444';
-      }
-    }
-
-    // ページロード後にインポート開始
-    window.addEventListener('DOMContentLoaded', () => {
-      loadWasmModule();
-    });
-
-    // GGUFファイル選択処理
-    ggufFileInput.onchange = async (e) => {
+    // GGUFファイル選択処理（インターセプト用Blobの確保）
+    ggufFileInput.onchange = (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
-      modelStatus.textContent = `GGUF読み込み中: ${file.name} ...`;
-      statusText.textContent = "ファイルをブラウザメモリに転送中...";
-      window.logToScreen(`ファイル選択: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
-
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        window.cachedGgufBuffer = new Uint8Array(arrayBuffer);
-        window.cachedGgufName = file.name;
-        window.logToScreen(`メモリ展開完了: ${file.name}`);
-
-        const fs = getFS();
-        if (fs) {
-          try { fs.mkdirTree('/models'); } catch(e) {}
-          fs.writeFile(`/models/${file.name}`, window.cachedGgufBuffer);
-          modelStatus.textContent = `モデル: ${file.name} をWASMメモリに配置完了 ✅ (通信ゼロ)`;
-          statusText.textContent = "モデル準備完了";
-          window.logToScreen(`FSへの配置成功: /models/${file.name}`);
-          alert(`GGUFファイル [${file.name}] を読み込みました！`);
-        } else {
-          modelStatus.textContent = `受領完了: ${file.name} (WASMの起動完了を待機中...)`;
-          statusText.textContent = "WASMエンジン起動待機中";
-          window.logToScreen("WASM FSはまだ利用できません。初期化完了時に自動配置します。");
-        }
-      } catch (err) {
-        modelStatus.textContent = `読み込みエラー: ${err.message}`;
-        window.logToScreen('GGUF読み込み例外: ' + err.message, true);
-      }
+      window.localGgufFileBlob = file;
+      modelStatus.textContent = `モデル: ${file.name} を設定完了 ✅ (通信ゼロ)`;
+      statusText.textContent = "ローカルGGUFモデル準備完了 ✅";
+      window.logToScreen(`ローカルGGUFを待機させました: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+      alert(`GGUFモデル [${file.name}] をセットしました！\nこれでネット通信を行わずに端末内のモデルが直接使われます。`);
     };
+
+    // miottscpp.js をESモジュールとして読み込み
+    async function loadMioTtsApp() {
+      window.logToScreen("miottscpp.js をロードしてシステムを起動します...");
+      try {
+        await import('./miottscpp.js');
+        window.logToScreen("★ MioTTS コントローラーの起動に完全成功しました！");
+        statusText.textContent = "MioTTS システム準備完了 ✅";
+      } catch (err) {
+        window.logToScreen("❌ 起動エラー: " + err.message, true);
+        statusText.textContent = "システム起動エラー";
+        statusText.style.color = '#ef4444';
+      }
+    }
+    window.addEventListener('DOMContentLoaded', loadMioTtsApp);
 
     function appendMsg(text, isUser) {
       const el = document.createElement('div');
@@ -404,7 +321,7 @@
       const apiKey = apiKeyInput.value.trim();
       if (!apiKey) throw new Error("Gemini APIキーを入力してください");
 
-      window.logToScreen('Gemini API (3.5-flash-lite) リクエスト送信');
+      window.logToScreen('Gemini API (3.5-flash-lite) に送信');
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
       const res = await fetch(url, {
         method: 'POST',
@@ -423,51 +340,22 @@
       return data.candidates[0].content.parts[0].text;
     }
 
-    // 音声推論
-    async function runMioTtsSynthesis(text) {
+    // 本物のMioTTS音声合成を実行
+    function triggerMioTtsVoice(replyText) {
       statusText.textContent = "MioTTS-0.1B で音声生成中...";
-      window.logToScreen('音声推論開始: ' + text);
+      window.logToScreen('MioTTS 音声生成トリガー: ' + replyText);
 
-      if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume();
-      }
+      // モバイル自動再生制限解除
+      player.play().catch(() => {});
 
-      const outPath = '/output.wav';
-      const fs = getFS();
-      if (!fs) throw new Error("WASMファイルシステムが未初期化です。");
+      // 1. テキストをセット
+      textEl.value = replyText;
+      textEl.dispatchEvent(new Event('input', { bubbles: true }));
+      textEl.dispatchEvent(new Event('change', { bubbles: true }));
 
-      try {
-        try { fs.unlink(outPath); } catch(e) {}
-
-        const modelPath = fs.analyzePath(`/models/${window.cachedGgufName || 'MioTTS-0.1B-Q8_0.gguf'}`).exists 
-          ? `/models/${window.cachedGgufName || 'MioTTS-0.1B-Q8_0.gguf'}` 
-          : 'public/model/MioTTS-0.1B-Q8_0.gguf';
-
-        if (typeof Module.callMain === 'function') {
-          window.logToScreen(`Module.callMain 実行 (model: ${modelPath})`);
-          const args = ['-m', modelPath, '-p', text, '-o', outPath];
-          Module.callMain(args);
-
-          const wavData = fs.readFile(outPath);
-          const blob = new Blob([wavData.buffer], { type: 'audio/wav' });
-          const audio = new Audio(URL.createObjectURL(blob));
-          await audio.play();
-          statusText.textContent = "再生中 🔊";
-          window.logToScreen('音声再生を開始しました');
-        } else if (typeof Module.synthesize === 'function') {
-          await Module.synthesize(text);
-          statusText.textContent = "再生完了";
-        } else {
-          throw new Error("WASM推論関数 (callMain / synthesize) が見つかりません");
-        }
-      } catch (err) {
-        statusText.textContent = `推論エラー: ${err.message}`;
-        window.logToScreen('推論エラー: ' + err.message, true);
-        throw err;
-      }
+      // 2. 音声生成ボタンをクリック
+      btnGenerate.click();
+      window.logToScreen('MioTTS 生成処理を開始しました');
     }
 
     async function handleSend() {
@@ -483,12 +371,13 @@
         const reply = await callGemini(text);
         appendMsg(reply, false);
 
-        await runMioTtsSynthesis(reply);
+        // 本物のMioTTS-0.1Bで発話
+        triggerMioTtsVoice(reply);
       } catch (err) {
         appendMsg(`エラー: ${err.message}`, false);
+        statusText.textContent = "エラーが発生しました";
       } finally {
         sendBtn.disabled = false;
-        if (statusText.textContent.includes("中")) statusText.textContent = "待機中";
       }
     }
 
