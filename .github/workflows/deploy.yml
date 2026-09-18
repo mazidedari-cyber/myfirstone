@@ -22,14 +22,12 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
       
     steps:
-      # 【修正】1. 先に mmnga/mio-tts-cpp をクローン
       - name: Checkout mmnga/mio-tts-cpp
         uses: actions/checkout@v4
         with:
           repository: mmnga/mio-tts-cpp
           submodules: recursive
 
-      # 【修正】2. 後からあなた自身のリポジトリを取得（clean: false で絶対に消させない）
       - name: Checkout user repo
         uses: actions/checkout@v4
         with:
@@ -56,26 +54,30 @@ jobs:
           chmod +x build.sh
           ./build.sh
 
-      # 自立型 index.html の配置とJS名の適合
+      # 自立型 index.html の配置と全スクリプトの集約
       - name: Deploy Custom Standalone HTML
         run: |
-          echo "=== ユーザーファイル確認 ==="
-          ls -la user-files
-          
+          echo "=== 1. 本家 index.html の script 設定を確認 ==="
+          grep -i "<script" examples/wasm/index.html || true
+
+          echo "=== 2. ビルドされた全JS・WASMファイルをルートへ集約 ==="
+          find examples/wasm -mindepth 2 -name "*.js" -exec cp -v {} examples/wasm/ \;
+          find examples/wasm -mindepth 2 -name "*.wasm" -exec cp -v {} examples/wasm/ \;
+
           # あなたの index.html を配置
           cp user-files/index.html examples/wasm/index.html
-          
-          # 生成されたJSファイル名を自動検出して適合
+
+          # メインとなるWASMスクリプト（coi関連以外）を特定
           TARGET_JS=$(cd examples/wasm && ls *.js 2>/dev/null | grep -v "coi" | head -n 1)
-          echo "検出されたWASMスクリプト: $TARGET_JS"
+          echo "確定したメインスクリプト: $TARGET_JS"
+
           if [ -n "$TARGET_JS" ]; then
-            sed -i "s|mio-tts.js|$TARGET_JS|g" examples/wasm/index.html
+            sed -i "s|src=\"mio-tts.js\"|src=\"$TARGET_JS\"|g" examples/wasm/index.html
           fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      # 成果物を公開
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
