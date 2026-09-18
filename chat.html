@@ -31,8 +31,8 @@
       border-radius: 4px;
       font-size: 14px;
     }
-    /* ファイル管理用UIエリア */
-    .file-manager-box {
+    /* パネル共通スタイル */
+    .panel-box {
       background: #fff;
       border: 1px solid #ced4da;
       border-radius: 6px;
@@ -40,10 +40,14 @@
       margin-bottom: 10px;
       font-size: 13px;
     }
-    .file-manager-box h4 {
+    .panel-box h4 {
       margin: 0 0 8px 0;
       font-size: 14px;
       color: #495057;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
     }
     .btn-group {
       display: flex;
@@ -60,11 +64,34 @@
       font-size: 12px;
       cursor: pointer;
     }
+    .test-btn {
+      background: #28a745;
+    }
     .file-status {
       font-size: 12px;
       color: #28a745;
       font-weight: bold;
       margin-top: 4px;
+    }
+    /* パラメータ調整用グリッド */
+    .param-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 6px;
+      margin-bottom: 8px;
+    }
+    .param-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .param-item label {
+      font-size: 11px;
+      color: #555;
+    }
+    .param-item input[type="range"] {
+      width: 100%;
     }
     .chat-container {
       flex: 1;
@@ -139,18 +166,52 @@
       <button class="main-btn" id="saveKeyBtn">保存</button>
     </div>
 
-    <!-- 案2: ファイル保存・即時読み込みエリア -->
-    <div class="file-manager-box">
-      <h4>📁 オフライン・高速起動用ファイル管理</h4>
+    <!-- 1. ファイル保存・即時読み込みパネル -->
+    <div class="panel-box">
+      <h4>📁 オフライン・ファイル管理</h4>
       <div class="btn-group">
-        <button class="sub-btn" id="exportModelBtn">📥 モデルファイル(GGUF)を端末に保存</button>
-        <button class="sub-btn" id="exportWasmBtn">📥 WASMバイナリを端末に保存</button>
+        <button class="sub-btn" id="exportModelBtn">📥 モデル(GGUF)を保存</button>
+        <button class="sub-btn" id="exportWasmBtn">📥 WASMバイナリを保存</button>
       </div>
-      <div style="margin-top: 6px;">
-        <label style="font-weight: bold;">📂 端末のファイルから直接読み込む:</label><br>
-        <input type="file" id="localFileInput" multiple accept=".gguf,.wasm,.data" style="margin-top: 4px; font-size: 12px;">
+      <div style="margin-top: 4px;">
+        <label style="font-weight: bold; font-size: 11px;">📂 端末からファイルを選択して即読込:</label><br>
+        <input type="file" id="localFileInput" multiple accept=".gguf,.wasm,.data" style="margin-top: 2px; font-size: 11px;">
       </div>
       <div id="fileStatus" class="file-status">ステータス: ネットから取得待機中</div>
+    </div>
+
+    <!-- 2. 【新設】参照音声 & パラメータ調整テストボックス -->
+    <div class="panel-box">
+      <h4>⚙️ 音声データ参照 & パラメータ調整テスト</h4>
+      
+      <!-- 参照音声設定 -->
+      <div style="margin-bottom: 8px;">
+        <label style="font-weight: bold; font-size: 11px;">🎙️ 参照音声（声色クローン用）:</label>
+        <input type="file" id="refAudioInput" accept="audio/*" style="font-size: 11px; margin-top: 2px; width: 100%;">
+        <input type="text" id="refTextInput" placeholder="参照音声の発話内容（任意）" style="width: 100%; font-size: 12px; margin-top: 4px; padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
+      </div>
+
+      <!-- パラメータ調整スライダー群 -->
+      <div class="param-grid">
+        <div class="param-item">
+          <label>話速 (Speed): <span id="valSpeed">1.0</span>x</label>
+          <input type="range" id="paramSpeed" min="0.5" max="2.0" step="0.1" value="1.0">
+        </div>
+        <div class="param-item">
+          <label>Temperature: <span id="valTemp">0.7</span></label>
+          <input type="range" id="paramTemp" min="0.1" max="1.5" step="0.05" value="0.7">
+        </div>
+        <div class="param-item">
+          <label>Top-P: <span id="valTopP">0.9</span></label>
+          <input type="range" id="paramTopP" min="0.1" max="1.0" step="0.05" value="0.9">
+        </div>
+      </div>
+
+      <!-- 単体テスト発話エリア -->
+      <div style="display: flex; gap: 6px; margin-top: 8px;">
+        <input type="text" id="testTextInput" placeholder="テスト用テキストを入力..." value="こんにちは、設定した音声のテストです。" style="flex: 1; font-size: 12px; padding: 6px; border: 1px solid #ccc; border-radius: 4px;">
+        <button class="sub-btn test-btn" id="runTestBtn">▶️ パラメータでテスト生成</button>
+      </div>
     </div>
 
     <div class="status" id="statusText">待機中</div>
@@ -176,11 +237,53 @@
     const statusText = document.getElementById('statusText');
     const audioPlayer = document.getElementById('audioPlayer');
 
-    // ファイル管理関連
+    // ファイル管理
     const exportModelBtn = document.getElementById('exportModelBtn');
     const exportWasmBtn = document.getElementById('exportWasmBtn');
     const localFileInput = document.getElementById('localFileInput');
     const fileStatus = document.getElementById('fileStatus');
+
+    // パラメータ・参照音声関連
+    const refAudioInput = document.getElementById('refAudioInput');
+    const refTextInput = document.getElementById('refTextInput');
+    const paramSpeed = document.getElementById('paramSpeed');
+    const paramTemp = document.getElementById('paramTemp');
+    const paramTopP = document.getElementById('paramTopP');
+    const valSpeed = document.getElementById('valSpeed');
+    const valTemp = document.getElementById('valTemp');
+    const valTopP = document.getElementById('valTopP');
+    const testTextInput = document.getElementById('testTextInput');
+    const runTestBtn = document.getElementById('runTestBtn');
+
+    // 参照音声のArrayBuffer保持用
+    let referenceAudioBuffer = null;
+
+    // スライダーの数値表示同期
+    paramSpeed.addEventListener('input', () => valSpeed.textContent = paramSpeed.value);
+    paramTemp.addEventListener('input', () => valTemp.textContent = paramTemp.value);
+    paramTopP.addEventListener('input', () => valTopP.textContent = paramTopP.value);
+
+    // 参照音声ファイル選択時の処理
+    refAudioInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) {
+        referenceAudioBuffer = null;
+        return;
+      }
+      referenceAudioBuffer = await file.arrayBuffer();
+      statusText.textContent = `参照音声を読み込みました: ${file.name}`;
+    });
+
+    // パラメータ取得ヘルパー関数
+    function getCurrentTtsParams() {
+      return {
+        speed: parseFloat(paramSpeed.value),
+        temperature: parseFloat(paramTemp.value),
+        topP: parseFloat(paramTopP.value),
+        refAudio: referenceAudioBuffer,
+        refText: refTextInput.value.trim()
+      };
+    }
 
     // 保存済みのローカルファイルデータを保持するマップ
     window.loadedLocalFiles = window.loadedLocalFiles || {};
@@ -201,7 +304,7 @@
     }
 
     // -------------------------------------------------------------
-    // 【案2】ファイルを端末のストレージに出力（ダウンロード保存）する処理
+    // ファイルを端末のストレージに出力（ダウンロード保存）する処理
     // -------------------------------------------------------------
     async function downloadAndSave(url, defaultFilename) {
       fileStatus.textContent = `ダウンロード中: ${defaultFilename} ...`;
@@ -210,7 +313,6 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}: ファイルが見つかりません`);
         const blob = await res.blob();
 
-        // ブラウザから端末ストレージにファイルとしてダウンロード出力
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = defaultFilename;
@@ -219,7 +321,7 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(a.href);
 
-        fileStatus.textContent = `✅ 保存完了: ${defaultFilename} を端末のフォルダに書き出しました`;
+        fileStatus.textContent = `✅ 保存完了: ${defaultFilename} を端末に書き出しました`;
       } catch (err) {
         console.error(err);
         fileStatus.textContent = `❌ 保存失敗: ${err.message}`;
@@ -227,19 +329,16 @@
       }
     }
 
-    // モデルファイル保存ボタン
     exportModelBtn.addEventListener('click', () => {
       downloadAndSave('public/model/MioTTS-0.1B-Q8_0.gguf', 'MioTTS-0.1B-Q8_0.gguf');
     });
 
-    // WASMファイル保存ボタン
     exportWasmBtn.addEventListener('click', () => {
-      // 本家ビルドで出力されたWASM名を指定して保存
       downloadAndSave('mio-tts.wasm', 'mio-tts.wasm');
     });
 
     // -------------------------------------------------------------
-    // 【案2】端末に保存されたローカルファイルを選択して即時読み込む処理
+    // 端末に保存されたローカルファイルを選択して即時読み込む処理
     // -------------------------------------------------------------
     localFileInput.addEventListener('change', async (e) => {
       const files = Array.from(e.target.files);
@@ -251,13 +350,11 @@
         const buffer = await file.arrayBuffer();
         window.loadedLocalFiles[file.name] = buffer;
 
-        // Emscripten (WASM) の仮想ファイルシステム(FS)が存在する場合は直接書き込む
         if (typeof FS !== 'undefined' && FS.writeFile) {
           try {
-            // public/model フォルダを作成して配置
             try { FS.mkdirTree('/public/model'); } catch (e) {}
             FS.writeFile(`/public/model/${file.name}`, new Uint8Array(buffer));
-            console.log(`WASM仮想FSに配置成功: /public/model/${file.name}`);
+            console.log(`WASM仮想FSに配置: /public/model/${file.name}`);
           } catch (err) {
             console.warn("WASM FS書き込み警告:", err);
           }
@@ -266,7 +363,7 @@
 
       const fileNames = files.map(f => f.name).join(', ');
       fileStatus.textContent = `✅ 端末から即座にロード完了: [${fileNames}] (通信ゼロ)`;
-      alert(`以下のファイルを端末から読み込みました:\n${fileNames}\nネット通信なしで利用可能です。`);
+      alert(`以下のファイルを端末から読み込みました:\n${fileNames}`);
     });
 
     // -------------------------------------------------------------
@@ -297,16 +394,27 @@
     }
 
     // -------------------------------------------------------------
-    // 2. 音声生成関数の実行
+    // 2. 音声生成関数の実行（パラメータ & 参照音声対応）
     // -------------------------------------------------------------
-    async function synthesizeAndPlay(text) {
-      statusText.textContent = "音声合成中...";
+    async function synthesizeAndPlay(text, params = getCurrentTtsParams()) {
+      statusText.textContent = `音声合成中 (話速:${params.speed}x, Temp:${params.temperature})...`;
 
-      // ※プロトタイプ動作確認用: Web Speech APIで発話
+      /**
+       * 【WASMとの接続ポイント】
+       * params オブジェクトに設定値がすべて格納されています:
+       * - params.speed: 話速
+       * - params.temperature: 温度
+       * - params.topP: Top-P
+       * - params.refAudio: 参照音声のArrayBuffer (未指定ならnull)
+       * - params.refText: 参照音声の発話テキスト
+       */
+
+      // --- 動作確認用フォールバック（Web Speech API） ---
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'ja-JP';
+        utterance.rate = params.speed; // スライダーの話速パラメータを反映
         window.speechSynthesis.speak(utterance);
       }
 
@@ -314,7 +422,18 @@
     }
 
     // -------------------------------------------------------------
-    // 送信ハンドラー
+    // 単体テストボタン（チャットを通さずにパラメータを試す）
+    // -------------------------------------------------------------
+    runTestBtn.addEventListener('click', async () => {
+      const text = testTextInput.value.trim();
+      if (!text) return;
+      audioPlayer.play().catch(() => {}); // モバイルのオーディオ制限解除
+      const params = getCurrentTtsParams();
+      await synthesizeAndPlay(text, params);
+    });
+
+    // -------------------------------------------------------------
+    // 送信ハンドラー（対話時にもパラメータを反映）
     // -------------------------------------------------------------
     async function handleSend() {
       const apiKey = apiKeyInput.value.trim();
@@ -337,7 +456,9 @@
         const replyText = await callGemini(apiKey, text);
         appendMessage(replyText, false);
 
-        await synthesizeAndPlay(replyText);
+        // 調整したパラメータと参照音声を使って返答を発話
+        const params = getCurrentTtsParams();
+        await synthesizeAndPlay(replyText, params);
       } catch (error) {
         console.error(error);
         statusText.textContent = "エラーが発生しました";
@@ -353,4 +474,4 @@
     });
   </script>
 </body>
-</html>
+  </html>
