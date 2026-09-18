@@ -54,30 +54,34 @@ jobs:
           chmod +x build.sh
           ./build.sh
 
-      # 自立型 index.html の配置と全スクリプトの集約
+      # 自立型 index.html の配置とスクリプト名の完全適合
       - name: Deploy Custom Standalone HTML
         run: |
-          echo "=== 1. 本家 index.html の script 設定を確認 ==="
-          grep -i "<script" examples/wasm/index.html || true
+          echo "=== 1. ビルドされた全JS・WASMファイル ==="
+          find examples/wasm -name "*.js" -o -name "*.wasm"
 
-          echo "=== 2. ビルドされた全JS・WASMファイルをルートへ集約 ==="
+          # サブフォルダにあればルートへ集約
           find examples/wasm -mindepth 2 -name "*.js" -exec cp -v {} examples/wasm/ \;
           find examples/wasm -mindepth 2 -name "*.wasm" -exec cp -v {} examples/wasm/ \;
+
+          # coi以外のメインWASMスクリプトを特定
+          TARGET_JS=$(cd examples/wasm && ls *.js 2>/dev/null | grep -v "coi" | head -n 1)
+          echo "確定したメインスクリプト: $TARGET_JS"
 
           # あなたの index.html を配置
           cp user-files/index.html examples/wasm/index.html
 
-          # メインとなるWASMスクリプト（coi関連以外）を特定
-          TARGET_JS=$(cd examples/wasm && ls *.js 2>/dev/null | grep -v "coi" | head -n 1)
-          echo "確定したメインスクリプト: $TARGET_JS"
-
+          # 1. index.html 内の 'mio-tts.js' を実際のファイル名に確実に置換
           if [ -n "$TARGET_JS" ]; then
-            sed -i "s|src=\"mio-tts.js\"|src=\"$TARGET_JS\"|g" examples/wasm/index.html
+            sed -i "s|mio-tts\.js|$TARGET_JS|g" examples/wasm/index.html
+            # 2. 念のため mio-tts.js という別名コピーも配置
+            cp -v "examples/wasm/$TARGET_JS" examples/wasm/mio-tts.js
           fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
+      # 成果物を公開
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
