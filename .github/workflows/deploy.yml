@@ -47,11 +47,24 @@ jobs:
           mkdir -p examples/wasm/public/model
           cp models/*.gguf examples/wasm/public/model/
 
-      # WASMエンジンのビルドを実行
-      - name: Build WASM
+      # 【第1ステップ】WebGPUフラグ (-DGGML_WEBGPU=ON) を注入してWASMをビルド
+      - name: Build WASM with WebGPU
         run: |
           cd examples/wasm
           chmod +x build.sh
+
+          echo "=== 既存の build.sh を確認 ==="
+          cat build.sh
+
+          # cmake呼び出し部分に WebGPU 有効化フラグを注入
+          if grep -q "emcmake cmake" build.sh; then
+            sed -i 's/emcmake cmake/emcmake cmake -DGGML_WEBGPU=ON/g' build.sh
+          fi
+
+          echo "=== WebGPU有効化後の build.sh ==="
+          cat build.sh
+
+          # ビルド実行
           ./build.sh
 
       # 自立型 index.html の配置とスクリプト名の完全適合
