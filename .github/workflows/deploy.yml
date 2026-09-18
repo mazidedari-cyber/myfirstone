@@ -22,18 +22,18 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
       
     steps:
-      # 1. あなたのリポジトリ（chat.html）を取得
-      - name: Checkout user repo
-        uses: actions/checkout@v4
-        with:
-          path: user-files
-
-      # 2. mmnga/mio-tts-cpp をクローン
+      # 【修正点1】先に mmnga/mio-tts-cpp をベースとしてクローン
       - name: Checkout mmnga/mio-tts-cpp
         uses: actions/checkout@v4
         with:
           repository: mmnga/mio-tts-cpp
           submodules: recursive
+
+      # 【修正点2】後からあなた自身のリポジトリ（chat.html）を user-files フォルダに取得
+      - name: Checkout user repo
+        uses: actions/checkout@v4
+        with:
+          path: user-files
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
@@ -55,16 +55,18 @@ jobs:
           chmod +x build.sh
           ./build.sh
 
-      # 3. あなたの chat.html を公開フォルダにコピー
+      # 【修正点3】chat.html を確実に公開フォルダにコピー
       - name: Copy chat.html to public
         run: |
-          if [ -f user-files/chat.html ]; then
-            cp user-files/chat.html examples/wasm/chat.html
-          fi
+          echo "ユーザーファイルを確認します:"
+          ls -la user-files
+          cp user-files/chat.html examples/wasm/chat.html
+          echo "chat.html のコピーに成功しました！"
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
+      # 公開フォルダをアップロード
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
