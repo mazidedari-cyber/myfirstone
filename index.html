@@ -133,6 +133,26 @@
       }
     };
 
+    // 【修正対策】WASMスクリプトが探すDOM要素を自動補完し、null.addEventListenerエラーを完全に防ぐ
+    const _origGetElementById = document.getElementById.bind(document);
+    document.getElementById = function(id) {
+      const el = _origGetElementById(id);
+      if (el) return el;
+      
+      // 要求された要素がなければ、ダミー要素を作って返す（クラッシュ回避）
+      window.logToScreen(`[DOM補完] 要求された要素 ID: "${id}" を自動生成しました`);
+      const mock = document.createElement(id === 'canvas' ? 'canvas' : 'div');
+      mock.id = id;
+      mock.style.display = 'none';
+      mock.value = '';
+      if (document.body) {
+        document.body.appendChild(mock);
+      } else {
+        window.addEventListener('DOMContentLoaded', () => document.body.appendChild(mock));
+      }
+      return mock;
+    };
+
     window.cachedGgufBuffer = null;
     window.cachedGgufName = null;
     window.isWasmReady = false;
@@ -168,6 +188,9 @@
   </script>
 </head>
 <body>
+
+  <!-- 【重要】Emscriptenが真っ先に探しに来るダミーキャンバスを配置 -->
+  <canvas id="canvas" style="display:none;"></canvas>
 
   <h2>🎙️ MioTTS-0.1B × Gemini 自立推論Web</h2>
 
@@ -299,14 +322,13 @@
       }
     };
 
-    // 【最重要修正】ESモジュールとして正しくインポート・初期化する処理
+    // 動的インポート & 初期化実行
     async function loadWasmModule() {
       window.logToScreen("WASMモジュール (mio-tts.js) の動的インポートを開始します...");
       try {
         const wasmExports = await import('./mio-tts.js');
         window.logToScreen("mio-tts.js のインポートに成功しました！");
 
-        // Emscripten ES6 のファクトリ関数（createModule / default）を実行
         const factory = wasmExports.default || wasmExports.createModule || wasmExports;
         if (typeof factory === 'function') {
           window.logToScreen("ファクトリ関数を実行してエンジンを初期化します...");
@@ -319,7 +341,6 @@
         window.isWasmReady = true;
         window.notifyWasmReady();
 
-        // 利用可能な関数をログに出力
         if (window.Module) {
           const funcs = Object.keys(window.Module).filter(k => typeof window.Module[k] === 'function');
           window.logToScreen('検出されたWASM関数: ' + funcs.slice(0, 10).join(', '));
@@ -331,7 +352,7 @@
       }
     }
 
-    // ページ読み込み完了後にWASMをインポート
+    // ページロード後にインポート開始
     window.addEventListener('DOMContentLoaded', () => {
       loadWasmModule();
     });
