@@ -87,7 +87,7 @@
     .badge.warn { background: #854d0e; color: #fde047; }
 
     .log-terminal {
-      height: 100px;
+      height: 115px;
       background: #000;
       border: 1px solid #334155;
       border-radius: 4px;
@@ -118,7 +118,6 @@
       }
     };
 
-    // ローカルGGUFファイルを fetch に割り込ませて直供給するインターセプター
     window.localGgufFileBlob = null;
     const origFetch = window.fetch;
     window.fetch = async function(...args) {
@@ -137,7 +136,7 @@
 </head>
 <body>
 
-  <!-- 【超重要】miottscpp.js が動作に必須とする要素群（初期値設定済み） -->
+  <!-- 【miottscpp.js 必須要素 ＋ GPU強制設定】 -->
   <div style="display: none;">
     <canvas id="canvas"></canvas>
     <textarea id="text"></textarea>
@@ -146,6 +145,14 @@
     <div id="status"></div>
     <div id="metrics"></div>
     <select id="embedding"></select>
+    
+    <!-- GPU層オフロード & パラメータ設定 -->
+    <input id="n-gpu-layers" type="number" value="99">
+    <input id="ngl" type="number" value="99">
+    <input id="gpu" type="checkbox" checked>
+    <input id="webgpu" type="checkbox" checked>
+    <input id="use-gpu" type="checkbox" checked>
+
     <input id="temp" type="number" value="0.7">
     <input id="top-p" type="number" value="0.9">
     <input id="top-k" type="number" value="40">
@@ -180,8 +187,8 @@
     <div class="flex-row" style="margin-bottom: 6px;">
       <label>演算モード:</label>
       <select id="backendSelect">
+        <option value="webgpu">⚡ スマホGPU (WebGPU優先)</option>
         <option value="cpu">💻 CPU (WASM)</option>
-        <option value="webgpu">⚡ スマホGPU (WebGPU)</option>
       </select>
       <span id="gpuStatus" class="badge warn">GPU確認中...</span>
     </div>
@@ -193,7 +200,7 @@
     </div>
   </div>
 
-  <!-- 音声プレーヤー（miottscpp.jsが出力音声をセットする場所） -->
+  <!-- 音声プレーヤー -->
   <div style="margin-bottom: 8px;">
     <audio id="player" controls style="width: 100%;"></audio>
   </div>
@@ -230,7 +237,6 @@
     const sendBtn = document.getElementById('sendBtn');
     const logTerminal = document.getElementById('logTerminal');
 
-    // miottscpp との連携要素
     const textEl = document.getElementById('text');
     const btnGenerate = document.getElementById('btn-generate');
     const miottsStatus = document.getElementById('status');
@@ -247,7 +253,6 @@
       alert('APIキーを保存しました。');
     };
 
-    // WebGPU確認
     async function checkWebGPU() {
       if ('gpu' in navigator) {
         try {
@@ -266,7 +271,6 @@
     }
     checkWebGPU();
 
-    // miottscpp.js の内部ステータス変化を画面に同期
     const observer = new MutationObserver(() => {
       if (miottsStatus && miottsStatus.textContent) {
         statusDetail.textContent = miottsStatus.textContent;
@@ -275,13 +279,11 @@
     });
     observer.observe(miottsStatus, { childList: true, characterData: true, subtree: true });
 
-    // 音声再生が始まったら表示を切り替え
     player.onplay = () => {
       statusText.textContent = "音声再生中 🔊";
       window.logToScreen('MioTTS 本物音声の再生を開始しました');
     };
 
-    // GGUFファイル選択処理（インターセプト用Blobの確保）
     ggufFileInput.onchange = (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -290,15 +292,32 @@
       modelStatus.textContent = `モデル: ${file.name} を設定完了 ✅ (通信ゼロ)`;
       statusText.textContent = "ローカルGGUFモデル準備完了 ✅";
       window.logToScreen(`ローカルGGUFを待機させました: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
-      alert(`GGUFモデル [${file.name}] をセットしました！\nこれでネット通信を行わずに端末内のモデルが直接使われます。`);
+      alert(`GGUFモデル [${file.name}] をセットしました！`);
     };
 
-    // miottscpp.js をESモジュールとして読み込み
+    // miottscpp.js の内部コード自動解析 ＆ 起動
     async function loadMioTtsApp() {
+      // 1. スクリプトの内部コードをスキャンして解析ログを出力
+      fetch('miottscpp.js')
+        .then(r => r.text())
+        .then(code => {
+          const rIdx = code.indexOf('ready (');
+          if (rIdx !== -1) {
+            const snippet = code.slice(Math.max(0, rIdx - 70), Math.min(code.length, rIdx + 70)).replace(/\s+/g, ' ');
+            window.logToScreen('【解析:readyロジック】' + snippet);
+          }
+          const gpuHits = code.match(/.{0,25}(?:webgpu|n_gpu_layers|ngl|backend).{0,25}/gi) || [];
+          if (gpuHits.length > 0) {
+            window.logToScreen('【解析:GPUヒット数】' + gpuHits.length);
+            gpuHits.slice(0, 3).forEach(h => window.logToScreen('【コード】' + h.trim().replace(/\s+/g, ' ')));
+          }
+        }).catch(() => {});
+
+      // 2. モジュールをロード
       window.logToScreen("miottscpp.js をロードしてシステムを起動します...");
       try {
         await import('./miottscpp.js');
-        window.logToScreen("★ MioTTS コントローラーの起動に完全成功しました！");
+        window.logToScreen("★ MioTTS コントローラーの起動に成功しました！");
         statusText.textContent = "MioTTS システム準備完了 ✅";
       } catch (err) {
         window.logToScreen("❌ 起動エラー: " + err.message, true);
@@ -316,7 +335,6 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    // Gemini API
     async function callGemini(prompt) {
       const apiKey = apiKeyInput.value.trim();
       if (!apiKey) throw new Error("Gemini APIキーを入力してください");
@@ -328,7 +346,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          systemInstruction: { parts: [{ text: "あなたは音声対話AIです。1〜2文程度の簡潔な日本語で会話してください。" }] }
+          // 音声生成を高速化するため超短文プロンプトを徹底
+          systemInstruction: { parts: [{ text: "あなたは音声対話AIです。15文字程度の極めて短い一言の日本語で返答してください。" }] }
         })
       });
 
@@ -340,20 +359,16 @@
       return data.candidates[0].content.parts[0].text;
     }
 
-    // 本物のMioTTS音声合成を実行
     function triggerMioTtsVoice(replyText) {
       statusText.textContent = "MioTTS-0.1B で音声生成中...";
       window.logToScreen('MioTTS 音声生成トリガー: ' + replyText);
 
-      // モバイル自動再生制限解除
       player.play().catch(() => {});
 
-      // 1. テキストをセット
       textEl.value = replyText;
       textEl.dispatchEvent(new Event('input', { bubbles: true }));
       textEl.dispatchEvent(new Event('change', { bubbles: true }));
 
-      // 2. 音声生成ボタンをクリック
       btnGenerate.click();
       window.logToScreen('MioTTS 生成処理を開始しました');
     }
@@ -371,7 +386,6 @@
         const reply = await callGemini(text);
         appendMsg(reply, false);
 
-        // 本物のMioTTS-0.1Bで発話
         triggerMioTtsVoice(reply);
       } catch (err) {
         appendMsg(`エラー: ${err.message}`, false);
