@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MioTTS-0.1B × Gemini 自立推論システム</title>
   
-  <!-- 1. マルチスレッドセキュリティ解除スクリプト -->
   <script src="coi-serviceworker.js"></script>
 
   <style>
@@ -79,29 +78,18 @@
     }
     .msg.user { align-self: flex-end; background: #2563eb; color: #fff; }
     .msg.ai { align-self: flex-start; background: #334155; color: #f8fafc; }
-    .status-bar { font-size: 12px; color: #38bdf8; margin-bottom: 8px; font-weight: bold; }
+    .status-bar { font-size: 13px; color: #38bdf8; margin-bottom: 8px; font-weight: bold; }
     .badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; }
     .badge.success { background: #065f46; color: #34d399; }
     .badge.warn { background: #854d0e; color: #fde047; }
   </style>
 
-  <!-- 2. WASM読み込み【前】の初期化とエラー監視 -->
   <script>
-    // スマホ画面にエラーを赤字で表示するロガー
-    window.onerror = function(msg, url, line) {
-      const el = document.getElementById('statusText');
-      if (el) {
-        el.textContent = `❌ JSエラー: ${msg} (行: ${line})`;
-        el.style.color = '#ef4444';
-      }
-    };
-
-    // 先行してファイルが選択された場合の一時保管用
     window.cachedGgufBuffer = null;
     window.cachedGgufName = null;
     window.isWasmReady = false;
 
-    // Emscripten が起動時に参照する設定オブジェクト（必ずJS読み込み前に定義）
+    // Emscripten 用フック
     window.Module = {
       print: function(text) { console.log('WASM:', text); },
       printErr: function(text) { console.error('WASM-ERR:', text); },
@@ -113,14 +101,16 @@
     };
   </script>
 
-  <!-- 3. WASMランタイムスクリプトをここで読み込む -->
-  <script src="mio-tts.js"></script>
+  <!-- 読み込み成否を画面で検知できるスクリプトタグ -->
+  <script src="mio-tts.js" 
+          onload="console.log('WASM-JS ロード成功');"
+          onerror="document.getElementById('statusText').textContent = '❌ スクリプト読み込み失敗(404): ' + this.src; document.getElementById('statusText').style.color='#ef4444';">
+  </script>
 </head>
 <body>
 
   <h2>🎙️ MioTTS-0.1B × Gemini 自立推論Web</h2>
 
-  <!-- 1. 設定パネル -->
   <div class="card">
     <div class="card-title">⚙️ システム構成 & モデルロード</div>
     
@@ -145,10 +135,10 @@
     </div>
   </div>
 
-  <div class="status-bar" id="statusText">WASMエンジンを起動中...</div>
+  <div class="status-bar" id="statusText">WASMスクリプトを読み込み中...</div>
 
   <div class="chat-box" id="chatBox">
-    <div class="msg ai">準備完了。GGUFモデルを読み込むか、そのまま話しかけてください。</div>
+    <div class="msg ai">準備中...</div>
   </div>
 
   <div class="flex-row">
@@ -156,7 +146,6 @@
     <button id="sendBtn">送信</button>
   </div>
 
-  <!-- 4. メイン操作ロジック -->
   <script>
     const apiKeyInput = document.getElementById('apiKeyInput');
     const saveKeyBtn = document.getElementById('saveKeyBtn');
@@ -183,7 +172,7 @@
       return null;
     }
 
-    // WebGPUの判定
+    // WebGPU確認
     async function checkWebGPU() {
       if ('gpu' in navigator) {
         try {
@@ -201,12 +190,13 @@
     }
     checkWebGPU();
 
-    // WASMが準備完了したときの共通処理
+    // WASM準備完了時の処理
     window.notifyWasmReady = function() {
       statusText.textContent = "WASMエンジン初期化完了 ✅";
       statusText.style.color = '#38bdf8';
+      const msgAi = document.querySelector('.msg.ai');
+      if (msgAi) msgAi.textContent = "準備完了！モデルを選択するか、話しかけてください。";
 
-      // 既にGGUFファイルが選択されていた場合は直ちにFSに書き込む
       const fs = getFS();
       if (window.cachedGgufBuffer && fs) {
         try {
@@ -221,16 +211,31 @@
       }
     };
 
-    // もし初期化通知が既に終わっていた、または定期チェックで検知した場合のバックアップ
-    const checkInterval = setInterval(() => {
-      if (getFS()) {
-        clearInterval(checkInterval);
-        if (!window.isWasmReady) {
+    // 多様な初期化形式（ファクトリ関数等）に対応する自動監視
+    async function tryInitModule() {
+      const factory = window.createModule || window.initModule || window.mioTTS;
+      if (typeof factory === 'function' && !window.isWasmReady) {
+        try {
+          statusText.textContent = "WASMモジュール生成中...";
+          window.Module = await factory(window.Module || {});
           window.isWasmReady = true;
           window.notifyWasmReady();
+          return true;
+        } catch (e) {
+          console.warn("Factory init failed:", e);
         }
       }
-    }, 500);
+      if (getFS() && !window.isWasmReady) {
+        window.isWasmReady = true;
+        window.notifyWasmReady();
+        return true;
+      }
+      return false;
+    }
+
+    const timer = setInterval(async () => {
+      if (await tryInitModule()) clearInterval(timer);
+    }, 400);
 
     // GGUFファイル選択処理
     ggufFileInput.onchange = async (e) => {
@@ -270,7 +275,6 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    // Gemini 3.5 Flash-Lite API
     async function callGemini(prompt) {
       const apiKey = apiKeyInput.value.trim();
       if (!apiKey) throw new Error("Gemini APIキーを入力してください");
@@ -293,7 +297,6 @@
       return data.candidates[0].content.parts[0].text;
     }
 
-    // 音声合成と再生
     async function runMioTtsSynthesis(text) {
       statusText.textContent = "MioTTS-0.1B で音声生成中...";
 
@@ -337,7 +340,6 @@
       }
     }
 
-    // 送信
     async function handleSend() {
       const text = userInput.value.trim();
       if (!text) return;
