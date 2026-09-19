@@ -1,0 +1,89 @@
+name: Export MioTTS-0.1B to Lightweight ONNX (WebGPU)
+
+on:
+  workflow_dispatch: # 手動ボタンでいつでも実行可能
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers onnx onnxruntime optimum accelerate
+          pip install git+https://github.com/Aratako/MioCodec.git
+
+      # 最軽量設定（0.1B + 24kHz + FP16）でONNX形式に自動変換
+      - name: Export Models to ONNX
+        run: |
+          python - << 'EOF'
+          import os
+          import torch
+          from transformers import AutoTokenizer, AutoModelForCausalLM
+          from miocodec import MioCodecModel
+
+          out_dir = "models/onnx"
+          os.makedirs(out_dir, exist_ok=True)
+
+          # 1. MioTTS-0.1B (LLM) のエクスポート
+          llm_id = "Aratako/MioTTS-0.1B"
+          print(f"--- 1. Loading {llm_id} ---")
+          tokenizer = AutoTokenizer.from_pretrained(llm_id)
+          tokenizer.save_pretrained(out_dir)
+
+          # 2. MioCodec-25Hz-24kHz (ボコーダー) のエクスポート
+          codec_id = "Aratako/MioCodec-25Hz-24kHz"
+          print(f"--- 2. Loading {codec_id} ---")
+          codec = MioCodecModel.from_pretrained(codec_id).eval()
+
+          class CodecDecoderWrapper(torch.nn.Module):
+              def __init__(self, model):
+                  super().__init__()
+                  self.model = model
+              def forward(self, tokens, emb):
+                  return self.model.decode(content_token_indices=tokens, global_embedding=emb)
+
+          wrapper = CodecDecoderWrapper(codec)
+          dummy_tokens = torch.zeros((1, 50), dtype=torch.long)
+          dummy_emb = torch.zeros((1, 256), dtype=torch.float32)
+
+          print("--- 3. Exporting MioCodec to ONNX ---")
+          torch.onnx.export(
+              wrapper,
+              (dummy_tokens, dummy_emb),
+              os.path.join(out_dir, "miocodec_decoder.onnx"),
+              input_names=["tokens", "global_embedding"],
+              output_names=["waveform"],
+              dynamic_axes={
+                  "tokens": {1: "seq_len"},
+                  "waveform": {2: "audio_len"}
+              },
+              opset_version=17
+          )
+          print("MioCodec ONNX export complete!")
+          EOF
+
+      # Optimum CLIを使ってLLM本体を最軽量FP16でエクスポート
+      - name: Export LLM with Optimum (FP16)
+        run: |
+          optimum-cli export onnx \
+            --model Aratako/MioTTS-0.1B \
+            --task text-generation-with-past \
+            --dtype fp16 \
+            models/onnx/llm/
+
+      # 成果物（ONNXファイル一式）を保存
+      - name: Upload ONNX Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: miotts-0.1b-webgpu-onnx
+          path: models/onnx/
