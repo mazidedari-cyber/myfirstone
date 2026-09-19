@@ -39,7 +39,7 @@ jobs:
         with:
           version: latest
 
-      # モデルのダウンロードと配置
+      # モデルのダウンロード（Q4_K_Mも追加取得）
       - name: Download Models
         run: |
           chmod +x models_download.sh
@@ -47,18 +47,16 @@ jobs:
           mkdir -p examples/wasm/public/model
           cp models/*.gguf examples/wasm/public/model/
 
-      # WebGPUリンカーフラグ (-sUSE_WEBGPU=1) を含めて完全ビルド
-      - name: Build WASM with Full WebGPU Support
+          # 公式最軽量 4bit Q4_K_M モデルをダウンロードして配置
+          echo "Downloading MioTTS-0.1B-Q4_K_M.gguf (79.6 MB)..."
+          curl -L -o examples/wasm/public/model/MioTTS-0.1B-Q4_K_M.gguf \
+            https://huggingface.co/Aratako/MioTTS-GGUF/resolve/main/MioTTS-0.1B-Q4_K_M.gguf || true
+
+      # WASMエンジンの安定ビルド（CPU最適化）
+      - name: Build WASM
         run: |
           cd examples/wasm
           chmod +x build.sh
-
-          # 環境変数とcmakeフラグの両方でWebGPUライブラリを強制結合
-          export EMCC_CFLAGS="-sUSE_WEBGPU=1"
-          if grep -q "emcmake cmake" build.sh; then
-            sed -i 's/emcmake cmake/emcmake cmake -DGGML_WEBGPU=ON -DCMAKE_EXE_LINKER_FLAGS="-sUSE_WEBGPU=1" -DCMAKE_CXX_FLAGS="-sUSE_WEBGPU=1"/g' build.sh
-          fi
-
           ./build.sh
 
       # 自立型 index.html の配置とスクリプト名の完全適合
@@ -80,6 +78,7 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
+      # 成果物を公開
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
