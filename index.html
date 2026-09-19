@@ -75,8 +75,6 @@
     }
     .msg.user { align-self: flex-end; background: #2563eb; color: #fff; }
     .msg.ai { align-self: flex-start; background: #334155; color: #f8fafc; }
-    .badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; }
-    .badge.success { background: #065f46; color: #34d399; }
 
     .log-terminal {
       height: 110px;
@@ -110,14 +108,18 @@
       }
     };
 
-    // Q4_K_M または任意の GGUF を直供給する柔軟なインターセプター
+    // 【最重要修正】LLMモデル要求のみをピンポイントでインターセプト（声色データやボコーダーは横取りしない）
     window.localGgufFileBlob = null;
     const origFetch = window.fetch;
     window.fetch = async function(...args) {
       const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-      // MioTTS のモデル取得要求（Q8_0 でも Q4_K_M でも）をローカルファイルに置き換える
-      if (window.localGgufFileBlob && (url.includes('MioTTS-0.1B') || url.endsWith('.gguf'))) {
-        window.logToScreen('⚡【最速直結】端末の最軽量GGUFモデルをWASMに直供給しました！');
+      
+      const isLlmModel = (url.includes('MioTTS-0.1B') || url.includes('Q8_0') || url.includes('Q4_K_M'))
+                         && !url.includes('.emb.gguf') 
+                         && !url.includes('miocodec');
+
+      if (window.localGgufFileBlob && isLlmModel) {
+        window.logToScreen('⚡【最速直結】LLM本体の要求を検知。端末のQ4_K_Mモデルを供給しました！');
         return new Response(window.localGgufFileBlob);
       }
       return origFetch.apply(this, args);
@@ -130,7 +132,7 @@
 </head>
 <body>
 
-  <!-- 【miottscpp.js 連携要素（超高速化チューニング済み）】 -->
+  <!-- miottscpp.js 連携要素 -->
   <div style="display: none;">
     <canvas id="canvas"></canvas>
     <textarea id="text"></textarea>
@@ -140,7 +142,6 @@
     <div id="metrics"></div>
     <select id="embedding"></select>
     
-    <!-- 高速化パラメータ: スレッド数4, 最大生成128に制限 -->
     <input id="n-threads" type="number" value="4">
     <input id="n-predict" type="number" value="128">
     <input id="ctx-size" type="number" value="512">
@@ -191,12 +192,13 @@
   <div class="status-detail" id="statusDetail">待機中</div>
 
   <div class="chat-box" id="chatBox">
-    <div class="msg ai">準備完了！Gemini APIキーを保存して話しかけてください。</div>
+    <div class="msg ai">準備中...</div>
   </div>
 
   <div class="flex-row" style="margin-bottom: 8px;">
     <input type="text" id="userInput" placeholder="メッセージを入力...">
-    <button id="sendBtn">送信</button>
+    <!-- 初期状態は準備完了まで無効化 -->
+    <button id="sendBtn" disabled>⏳ モデル準備中...</button>
   </div>
 
   <div style="font-size: 11px; color: #94a3b8; margin-bottom: 2px;">🔍 リアルタイム診断ログ:</div>
@@ -232,10 +234,22 @@
       alert('APIキーを保存しました。');
     };
 
+    // ステータス監視 ＆ フライング防止ガード
     const observer = new MutationObserver(() => {
       if (miottsStatus && miottsStatus.textContent) {
         statusDetail.textContent = miottsStatus.textContent;
         window.logToScreen('[MioTTS-Status] ' + miottsStatus.textContent);
+
+        // readyになったら安全に送信ボタンを有効化！
+        if (miottsStatus.textContent.includes('ready')) {
+          sendBtn.disabled = false;
+          sendBtn.textContent = '送信';
+          statusText.textContent = "システム準備完了 ✅";
+          const msgAi = document.querySelector('.msg.ai');
+          if (msgAi && msgAi.textContent === "準備中...") {
+            msgAi.textContent = "準備完了！話しかけてみてください。";
+          }
+        }
 
         if (miottsStatus.textContent.includes('done') && generateStartTime > 0) {
           const elapsed = ((Date.now() - generateStartTime) / 1000).toFixed(1);
@@ -257,7 +271,6 @@
 
       window.localGgufFileBlob = file;
       modelStatus.textContent = `モデル: ${file.name} を登録完了 ✅ (通信ゼロ)`;
-      statusText.textContent = "超軽量GGUFモデル準備完了 ✅";
       window.logToScreen(`GGUF待機完了: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
       alert(`最軽量モデル [${file.name}] をセットしました！`);
     };
@@ -267,7 +280,6 @@
       try {
         await import('./miottscpp.js');
         window.logToScreen("★ MioTTS コントローラーの起動に成功しました！");
-        statusText.textContent = "MioTTS システム準備完了 ✅";
       } catch (err) {
         window.logToScreen("❌ 起動エラー: " + err.message, true);
         statusText.textContent = "システム起動エラー";
@@ -284,7 +296,7 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    // Gemini API（返答を10〜15文字の一言に強制して超高速化）
+    // Gemini API
     async function callGemini(prompt) {
       const apiKey = apiKeyInput.value.trim();
       if (!apiKey) throw new Error("Gemini APIキーを入力してください");
