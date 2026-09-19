@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MioTTS-0.1B × Gemini 自立推論システム</title>
+  <title>MioTTS-0.1B × Gemini 超高速対話Web</title>
   
   <script src="coi-serviceworker.js"></script>
 
@@ -50,13 +50,6 @@
       cursor: pointer;
     }
     button:disabled { background: #475569; cursor: not-allowed; }
-    select {
-      background: #0f172a;
-      border: 1px solid #475569;
-      color: #fff;
-      padding: 6px 10px;
-      border-radius: 4px;
-    }
     
     .status-text { font-size: 13px; color: #38bdf8; font-weight: bold; margin-bottom: 4px; }
     .status-detail { font-size: 11px; color: #94a3b8; margin-bottom: 6px; }
@@ -84,10 +77,9 @@
     .msg.ai { align-self: flex-start; background: #334155; color: #f8fafc; }
     .badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; }
     .badge.success { background: #065f46; color: #34d399; }
-    .badge.warn { background: #854d0e; color: #fde047; }
 
     .log-terminal {
-      height: 115px;
+      height: 110px;
       background: #000;
       border: 1px solid #334155;
       border-radius: 4px;
@@ -118,12 +110,14 @@
       }
     };
 
+    // Q4_K_M または任意の GGUF を直供給する柔軟なインターセプター
     window.localGgufFileBlob = null;
     const origFetch = window.fetch;
     window.fetch = async function(...args) {
       const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-      if (window.localGgufFileBlob && url.includes('MioTTS-0.1B-Q8_0.gguf')) {
-        window.logToScreen('⚡【インターセプト成功】端末のローカルGGUFファイルをWASMに直供給します！');
+      // MioTTS のモデル取得要求（Q8_0 でも Q4_K_M でも）をローカルファイルに置き換える
+      if (window.localGgufFileBlob && (url.includes('MioTTS-0.1B') || url.endsWith('.gguf'))) {
+        window.logToScreen('⚡【最速直結】端末の最軽量GGUFモデルをWASMに直供給しました！');
         return new Response(window.localGgufFileBlob);
       }
       return origFetch.apply(this, args);
@@ -136,7 +130,7 @@
 </head>
 <body>
 
-  <!-- 【miottscpp.js 必須要素 ＋ GPU強制設定】 -->
+  <!-- 【miottscpp.js 連携要素（超高速化チューニング済み）】 -->
   <div style="display: none;">
     <canvas id="canvas"></canvas>
     <textarea id="text"></textarea>
@@ -146,19 +140,13 @@
     <div id="metrics"></div>
     <select id="embedding"></select>
     
-    <!-- GPU層オフロード & パラメータ設定 -->
-    <input id="n-gpu-layers" type="number" value="99">
-    <input id="ngl" type="number" value="99">
-    <input id="gpu" type="checkbox" checked>
-    <input id="webgpu" type="checkbox" checked>
-    <input id="use-gpu" type="checkbox" checked>
-
+    <!-- 高速化パラメータ: スレッド数4, 最大生成128に制限 -->
+    <input id="n-threads" type="number" value="4">
+    <input id="n-predict" type="number" value="128">
+    <input id="ctx-size" type="number" value="512">
     <input id="temp" type="number" value="0.7">
     <input id="top-p" type="number" value="0.9">
     <input id="top-k" type="number" value="40">
-    <input id="n-threads" type="number" value="4">
-    <input id="ctx-size" type="number" value="2048">
-    <input id="n-predict" type="number" value="512">
     <input id="use-external-api" type="checkbox">
     <div id="api-settings"></div>
     <input id="api-base" value="">
@@ -173,34 +161,28 @@
     <div id="ref-status"></div>
   </div>
 
-  <h2>🎙️ MioTTS-0.1B × Gemini 自立推論Web</h2>
+  <h2>🎙️ MioTTS-0.1B × Gemini 超高速対話Web</h2>
 
-  <!-- 1. 設定 & モデルロード パネル -->
   <div class="card">
-    <div class="card-title">⚙️ システム構成 & モデルロード</div>
+    <div class="card-title">⚙️ システム構成 & 最軽量モデルロード</div>
     
     <div class="flex-row" style="margin-bottom: 6px;">
       <input type="password" id="apiKeyInput" placeholder="Gemini API Key を入力">
       <button id="saveKeyBtn">保存</button>
     </div>
 
-    <div class="flex-row" style="margin-bottom: 6px;">
-      <label>演算モード:</label>
-      <select id="backendSelect">
-        <option value="webgpu">⚡ スマホGPU (WebGPU優先)</option>
-        <option value="cpu">💻 CPU (WASM)</option>
-      </select>
-      <span id="gpuStatus" class="badge warn">GPU確認中...</span>
-    </div>
-
     <div>
-      <label style="font-weight: bold;">📂 端末のGGUFモデルを直接読み込む (MioTTS-0.1B-Q8_0.gguf):</label><br>
+      <label style="font-weight: bold;">📂 端末のGGUFモデルを選択 (Q4_K_M 推奨 / 79.6MB):</label><br>
       <input type="file" id="ggufFileInput" accept=".gguf" style="margin-top: 4px;">
       <div id="modelStatus" style="font-size: 11px; color: #94a3b8; margin-top: 2px;">モデル: 未ロード</div>
+      <div style="font-size: 11px; margin-top: 4px;">
+        <a href="https://huggingface.co/Aratako/MioTTS-GGUF/resolve/main/MioTTS-0.1B-Q4_K_M.gguf" target="_blank" style="color: #38bdf8; text-decoration: underline;">
+          📥 公式 MioTTS-0.1B-Q4_K_M.gguf (79.6MB) を直接ダウンロード
+        </a>
+      </div>
     </div>
   </div>
 
-  <!-- 音声プレーヤー -->
   <div style="margin-bottom: 8px;">
     <audio id="player" controls style="width: 100%;"></audio>
   </div>
@@ -208,26 +190,21 @@
   <div class="status-text" id="statusText">システム初期化中...</div>
   <div class="status-detail" id="statusDetail">待機中</div>
 
-  <!-- 2. チャットエリア -->
   <div class="chat-box" id="chatBox">
-    <div class="msg ai">準備完了！Gemini APIキーを保存し、話しかけてください。</div>
+    <div class="msg ai">準備完了！Gemini APIキーを保存して話しかけてください。</div>
   </div>
 
-  <!-- 3. 入力エリア -->
   <div class="flex-row" style="margin-bottom: 8px;">
     <input type="text" id="userInput" placeholder="メッセージを入力...">
     <button id="sendBtn">送信</button>
   </div>
 
-  <!-- 4. リアルタイム診断ログ -->
   <div style="font-size: 11px; color: #94a3b8; margin-bottom: 2px;">🔍 リアルタイム診断ログ:</div>
   <div class="log-terminal" id="logTerminal"></div>
 
   <script>
     const apiKeyInput = document.getElementById('apiKeyInput');
     const saveKeyBtn = document.getElementById('saveKeyBtn');
-    const backendSelect = document.getElementById('backendSelect');
-    const gpuStatus = document.getElementById('gpuStatus');
     const ggufFileInput = document.getElementById('ggufFileInput');
     const modelStatus = document.getElementById('modelStatus');
     const statusText = document.getElementById('statusText');
@@ -242,6 +219,8 @@
     const miottsStatus = document.getElementById('status');
     const player = document.getElementById('player');
 
+    let generateStartTime = 0;
+
     if (window.earlyLogs && window.earlyLogs.length > 0) {
       logTerminal.textContent += window.earlyLogs.join('');
       window.earlyLogs = [];
@@ -253,35 +232,23 @@
       alert('APIキーを保存しました。');
     };
 
-    async function checkWebGPU() {
-      if ('gpu' in navigator) {
-        try {
-          const adapter = await navigator.gpu.requestAdapter();
-          if (adapter) {
-            gpuStatus.textContent = 'WebGPU利用可能 ✅';
-            gpuStatus.className = 'badge success';
-            window.logToScreen('WebGPU アダプター検出成功');
-            return;
-          }
-        } catch (e) {}
-      }
-      gpuStatus.textContent = 'CPUモードのみ 💻';
-      gpuStatus.className = 'badge warn';
-      backendSelect.value = 'cpu';
-    }
-    checkWebGPU();
-
     const observer = new MutationObserver(() => {
       if (miottsStatus && miottsStatus.textContent) {
         statusDetail.textContent = miottsStatus.textContent;
         window.logToScreen('[MioTTS-Status] ' + miottsStatus.textContent);
+
+        if (miottsStatus.textContent.includes('done') && generateStartTime > 0) {
+          const elapsed = ((Date.now() - generateStartTime) / 1000).toFixed(1);
+          statusText.textContent = `生成完了！(所要時間: ${elapsed}秒) 🔊`;
+          window.logToScreen(`★ 音声生成完了: ${elapsed} 秒`);
+          generateStartTime = 0;
+        }
       }
     });
     observer.observe(miottsStatus, { childList: true, characterData: true, subtree: true });
 
     player.onplay = () => {
-      statusText.textContent = "音声再生中 🔊";
-      window.logToScreen('MioTTS 本物音声の再生を開始しました');
+      window.logToScreen('音声再生を開始しました');
     };
 
     ggufFileInput.onchange = (e) => {
@@ -289,31 +256,13 @@
       if (!file) return;
 
       window.localGgufFileBlob = file;
-      modelStatus.textContent = `モデル: ${file.name} を設定完了 ✅ (通信ゼロ)`;
-      statusText.textContent = "ローカルGGUFモデル準備完了 ✅";
-      window.logToScreen(`ローカルGGUFを待機させました: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
-      alert(`GGUFモデル [${file.name}] をセットしました！`);
+      modelStatus.textContent = `モデル: ${file.name} を登録完了 ✅ (通信ゼロ)`;
+      statusText.textContent = "超軽量GGUFモデル準備完了 ✅";
+      window.logToScreen(`GGUF待機完了: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+      alert(`最軽量モデル [${file.name}] をセットしました！`);
     };
 
-    // miottscpp.js の内部コード自動解析 ＆ 起動
     async function loadMioTtsApp() {
-      // 1. スクリプトの内部コードをスキャンして解析ログを出力
-      fetch('miottscpp.js')
-        .then(r => r.text())
-        .then(code => {
-          const rIdx = code.indexOf('ready (');
-          if (rIdx !== -1) {
-            const snippet = code.slice(Math.max(0, rIdx - 70), Math.min(code.length, rIdx + 70)).replace(/\s+/g, ' ');
-            window.logToScreen('【解析:readyロジック】' + snippet);
-          }
-          const gpuHits = code.match(/.{0,25}(?:webgpu|n_gpu_layers|ngl|backend).{0,25}/gi) || [];
-          if (gpuHits.length > 0) {
-            window.logToScreen('【解析:GPUヒット数】' + gpuHits.length);
-            gpuHits.slice(0, 3).forEach(h => window.logToScreen('【コード】' + h.trim().replace(/\s+/g, ' ')));
-          }
-        }).catch(() => {});
-
-      // 2. モジュールをロード
       window.logToScreen("miottscpp.js をロードしてシステムを起動します...");
       try {
         await import('./miottscpp.js');
@@ -335,6 +284,7 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
+    // Gemini API（返答を10〜15文字の一言に強制して超高速化）
     async function callGemini(prompt) {
       const apiKey = apiKeyInput.value.trim();
       if (!apiKey) throw new Error("Gemini APIキーを入力してください");
@@ -346,8 +296,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          // 音声生成を高速化するため超短文プロンプトを徹底
-          systemInstruction: { parts: [{ text: "あなたは音声対話AIです。15文字程度の極めて短い一言の日本語で返答してください。" }] }
+          systemInstruction: { parts: [{ text: "あなたはフレンドリーな対話AIです。10文字〜15文字程度の極めて短い一言（相槌など）で返答してください。長文は絶対に禁止です。" }] }
         })
       });
 
@@ -360,9 +309,10 @@
     }
 
     function triggerMioTtsVoice(replyText) {
-      statusText.textContent = "MioTTS-0.1B で音声生成中...";
+      statusText.textContent = "MioTTS-0.1B (Q4_K_M) で高速生成中...";
       window.logToScreen('MioTTS 音声生成トリガー: ' + replyText);
 
+      generateStartTime = Date.now();
       player.play().catch(() => {});
 
       textEl.value = replyText;
