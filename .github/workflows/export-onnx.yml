@@ -22,7 +22,7 @@ jobs:
           pip install transformers onnx onnxruntime onnxscript accelerate
           pip install git+https://github.com/Aratako/MioCodec.git
 
-      # Pythonスクリプトから直接確実にONNX出力（optimum-cliを廃止）
+      # 安定版エクスポート (dynamo=False) でONNX出力
       - name: Export Both LLM and MioCodec to ONNX
         run: |
           python - << 'EOF'
@@ -35,7 +35,7 @@ jobs:
           os.makedirs(f"{out_dir}/llm", exist_ok=True)
 
           # ==========================================
-          # 1. MioTTS-0.1B (LLM本体) の直接エクスポート
+          # 1. MioTTS-0.1B (LLM本体) のエクスポート
           # ==========================================
           llm_id = "Aratako/MioTTS-0.1B"
           print(f"--- 1. Loading LLM: {llm_id} ---")
@@ -43,7 +43,6 @@ jobs:
           tokenizer.save_pretrained(out_dir)
           tokenizer.save_pretrained(f"{out_dir}/llm")
 
-          # 推論モードでモデルをロード (FP32で読み込んでエクスポート)
           model = AutoModelForCausalLM.from_pretrained(
               llm_id,
               torch_dtype=torch.float32,
@@ -62,6 +61,7 @@ jobs:
           dummy_input = torch.tensor([[1, 2, 3, 4]], dtype=torch.long)
 
           print("--- 2. Exporting LLM to ONNX ---")
+          # dynamo=False で従来の安定したTorchScriptバックエンドを使用
           torch.onnx.export(
               llm_wrapper,
               dummy_input,
@@ -73,12 +73,13 @@ jobs:
                   "logits": {0: "batch_size", 1: "seq_len"}
               },
               opset_version=17,
-              do_constant_folding=True
+              do_constant_folding=True,
+              dynamo=False
           )
           print("LLM ONNX export complete!")
 
           # ==========================================
-          # 2. MioCodec-25Hz-24kHz (ボコーダー) の直接エクスポート
+          # 2. MioCodec-25Hz-24kHz (ボコーダー) のエクスポート
           # ==========================================
           codec_id = "Aratako/MioCodec-25Hz-24kHz"
           print(f"--- 3. Loading Vocoder: {codec_id} ---")
@@ -96,6 +97,7 @@ jobs:
           dummy_emb = torch.zeros((1, 256), dtype=torch.float32)
 
           print("--- 4. Exporting MioCodec to ONNX ---")
+          # dynamo=False でiSTFT等の音声演算を安定トレース
           torch.onnx.export(
               codec_wrapper,
               (dummy_tokens, dummy_emb),
@@ -107,7 +109,8 @@ jobs:
                   "waveform": {2: "audio_len"}
               },
               opset_version=17,
-              do_constant_folding=True
+              do_constant_folding=True,
+              dynamo=False
           )
           print("MioCodec ONNX export complete!")
           EOF
