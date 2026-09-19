@@ -1,7 +1,7 @@
 name: Export MioTTS-0.1B to Lightweight ONNX (WebGPU)
 
 on:
-  workflow_dispatch: # 手動ボタンでいつでも実行可能
+  workflow_dispatch: # 手動実行ボタン
 
 jobs:
   export:
@@ -10,10 +10,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
+      # 【修正】MioCodecの要件に合わせて Python 3.12 に変更
+      - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       - name: Install dependencies
         run: |
@@ -28,15 +29,15 @@ jobs:
           python - << 'EOF'
           import os
           import torch
-          from transformers import AutoTokenizer, AutoModelForCausalLM
+          from transformers import AutoTokenizer
           from miocodec import MioCodecModel
 
           out_dir = "models/onnx"
           os.makedirs(out_dir, exist_ok=True)
 
-          # 1. MioTTS-0.1B (LLM) のエクスポート
+          # 1. MioTTS-0.1B のトークナイザー保存
           llm_id = "Aratako/MioTTS-0.1B"
-          print(f"--- 1. Loading {llm_id} ---")
+          print(f"--- 1. Loading tokenizer for {llm_id} ---")
           tokenizer = AutoTokenizer.from_pretrained(llm_id)
           tokenizer.save_pretrained(out_dir)
 
